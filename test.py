@@ -17,6 +17,8 @@ def test_impala_cnn():
 def main():
     test_impala_cnn()
 
+    print("All tests passed!")
+
 
 if __name__ == "__main__":
     main()
