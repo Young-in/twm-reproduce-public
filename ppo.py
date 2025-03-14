@@ -1,7 +1,10 @@
 from flax import nnx
 
+
 class Actor(nnx.Module):
-    def __init__(self, input_dim: int, intermediate_dim: int,  num_actions: int, rngs: nnx.Rngs):
+    def __init__(
+        self, input_dim: int, intermediate_dim: int, num_actions: int, rngs: nnx.Rngs
+    ):
         self.norm1 = nnx.LayerNorm(
             num_features=input_dim,
             rngs=rngs,
@@ -30,7 +33,7 @@ class Actor(nnx.Module):
             out_features=num_actions,
             rngs=rngs,
         )
-    
+
     def __call__(self, x):
         x = self.norm1(x)
         x = nnx.relu(self.linear1(x))
@@ -71,7 +74,7 @@ class Critic(nnx.Module):
             out_features=1,
             rngs=rngs,
         )
-    
+
     def __call__(self, x):
         x = self.norm1(x)
         x = nnx.relu(self.linear1(x))
@@ -80,7 +83,8 @@ class Critic(nnx.Module):
         x = self.norm2(x)
         x = self.linear4(x)
         return x
-        
+
+
 class ActorCritic(nnx.Module):
     def __init__(self, input_dim: int, num_actions: int, rngs: nnx.Rngs):
         intermediate_dim = 2048
@@ -97,8 +101,10 @@ class ActorCritic(nnx.Module):
             rngs=rngs,
         )
 
+
 def main():
-    model = ActorCritic(input_dim=8192 + 256, num_actions= 10, rngs=nnx.Rngs(0))
+    model = ActorCritic(input_dim=8192 + 256, num_actions=10, rngs=nnx.Rngs(0))
+
 
 if __name__ == "__main__":
     main()
