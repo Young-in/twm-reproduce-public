@@ -131,8 +131,8 @@ class ActorCritic(nnx.Module):
 
         delta = reward + (1 - done) * self.gamma * old_value[:, 1:] - old_value[:, :-1]
 
-        adv = nnx.scan(
-            lambda d, dt: self.gamma * self.ld * d + dt, 0, delta, reverse=True
+        adv = nnx.scan(lambda d, dt: self.gamma * self.ld * d + dt, reverse=True)(
+            0, delta
         )
 
         adv = (1 - done) * adv + done * delta
