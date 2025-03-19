@@ -11,13 +11,9 @@ class Agent(nnx.Module):
             channels=[64, 64, 128],
             rngs=rngs,
         )
-        self.rnn = nnx.RNN(
-            nnx.GRUCell(
-                in_features=8 * 8 * 128,
-                hidden_features=256,
-                rngs=rngs,
-            ),
-            return_carry=True,
+        self.rnn_cell = nnx.GRUCell(
+            in_features=8 * 8 * 128,
+            hidden_features=256,
             rngs=rngs,
         )
         self.actor_critic = ActorCritic(
@@ -25,19 +21,24 @@ class Agent(nnx.Module):
             num_actions=num_actions,
             rngs=rngs,
         )
-        self.prev_state = None
 
-    def __call__(self, obs):
+    def __call__(self, obs, prev_state):
         B, T, *_ = obs.shape
         z = self.encoder(obs)
         z = z.reshape((B, T, -1))
 
-        if self.prev_state is None:
-            self.prev_state = self.rnn.cell.initialize_carry((B, z.shape[-1]))
+        def rnn_step(prev_state, x):
+            prev_state, y = self.rnn_cell(prev_state, x)
+            return prev_state, y
 
-        self.prev_state, y = self.rnn(z, initial_carry=self.prev_state)
+        prev_state, y = nnx.scan(
+            rnn_step,
+            in_axes=(nnx.transforms.iteration.Carry, 1),
+            out_axes=(nnx.transforms.iteration.Carry, 1),
+        )(prev_state, z)
+
         pi, v = self.actor_critic(jnp.concatenate([z, y], axis=-1))
-        return pi, v
+        return pi, v, prev_state
 
 
 def main():
