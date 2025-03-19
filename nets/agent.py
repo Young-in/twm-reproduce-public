@@ -1,13 +1,21 @@
+from dataclasses import asdict
 from flax import nnx
 import jax.numpy as jnp
 
 from nets.impala_cnn import ImpalaCNN
 from nets.actor_critic import ActorCritic
 from nets.rnn import RNN
+from configs import ActorCriticConfig
 
 
 class Agent(nnx.Module):
-    def __init__(self, num_actions: int, *, rngs: nnx.Rngs):
+    def __init__(
+        self,
+        num_actions: int,
+        ac_config: ActorCriticConfig = ActorCriticConfig(),
+        *,
+        rngs: nnx.Rngs
+    ):
         self.encoder = ImpalaCNN(
             channels=[64, 64, 128],
             rngs=rngs,
@@ -20,6 +28,7 @@ class Agent(nnx.Module):
         self.actor_critic = ActorCritic(
             input_dim=(8 * 8 * 128) + 256,
             num_actions=num_actions,
+            **asdict(ac_config),
             rngs=rngs,
         )
 

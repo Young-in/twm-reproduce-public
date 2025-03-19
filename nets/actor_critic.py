@@ -97,12 +97,16 @@ class ActorCritic(nnx.Module):
         eps: float = 0.2,
         gamma: float = 0.925,
         ld: float = 0.625,
+        td_loss_coef: float = 2.0,
+        ent_loss_coef: float = 0.01,
         rngs: nnx.Rngs
     ):
         intermediate_dim = 2048
         self.eps = eps
         self.gamma = gamma
         self.ld = ld
+        self.td_loss_coef = td_loss_coef
+        self.ent_loss_coef = ent_loss_coef
 
         self.actor = Actor(
             input_dim=input_dim,
@@ -149,4 +153,6 @@ class ActorCritic(nnx.Module):
         value_loss = jnp.square(v - tgt).mean()
         ent_loss = -pi.entropy().mean()
 
-        return policy_loss + value_loss + ent_loss
+        return (
+            policy_loss + self.td_loss_coef * value_loss + self.ent_loss_coef * ent_loss
+        )

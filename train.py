@@ -61,7 +61,7 @@ def main(cfg: TrainConfig):
     env = AutoResetEnvWrapper(env)
     env = BatchEnvWrapper(env, cfg.batch_size)
 
-    agent = Agent(num_actions=env.action_space(env_params).n, rngs=nnx.Rngs(0))
+    agent = Agent(num_actions=env.action_space(env_params).n, ac_config=cfg.ac_config, rngs=nnx.Rngs(0))
 
     rng, env_rng = jax.random.split(rng)
 
