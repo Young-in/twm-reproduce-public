@@ -43,6 +43,18 @@ class Agent(nnx.Module):
         pi, v = self.actor_critic(jnp.concatenate([z, y], axis=-1))
         return pi, v, prev_state
 
+    def loss(self, obs, prev_state, action, reward, done, old_pi_log_prob, old_value):
+        B, T, *_ = obs.shape
+        z = self.encoder(obs)
+        z = nnx.relu(z)
+        z = z.reshape((B, T, -1))
+
+        prev_state, y = self.rnn(prev_state, z)
+
+        state = jnp.concatenate([z, y], axis=-1)
+
+        return self.actor_critic.loss(state, action, reward, done, old_pi_log_prob, old_value)
+
 
 def main():
     model = Agent(num_actions=10, rngs=nnx.Rngs(0))
