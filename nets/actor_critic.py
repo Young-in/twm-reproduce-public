@@ -120,12 +120,14 @@ class ActorCritic(nnx.Module):
         return self.actor(state), self.critic(state)
 
     def loss(self, state, action, reward, done, old_pi_log_prob, old_value):
-        # state: (B, T + 1, 8 * 8 * 128 + 256)
-        # action: (B, T)
-        # reward: (B, T)
-        # done: (B, T)
-        # old_pi_log_prob: (B, T)
-        # old_value: (B, T + 1)
+        """
+        state: (B, T + 1, 8 * 8 * 128 + 256)
+        action: (B, T)
+        reward: (B, T)
+        done: (B, T)
+        old_pi_log_prob: (B, T)
+        old_value: (B, T + 1)
+        """
 
         delta = reward + (1 - done) * self.gamma * old_value[:, 1:] - old_value[:, :-1]
 
