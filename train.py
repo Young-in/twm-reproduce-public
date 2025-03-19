@@ -36,8 +36,8 @@ def main(cfg: TrainConfig):
         def one_step(state, rng):
             obs, done, env_state, agent_state = state
 
-            pi, value, agent_state = agent(
-                obs[:, None, ...], done[:, None, ...], agent_state
+            pi, value, agent_state = jax.lax.stop_gradient(
+                agent(obs[:, None, ...], done[:, None, ...], agent_state)
             )
             rng, sample_rng = jax.random.split(rng)
             action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
@@ -77,9 +77,9 @@ def main(cfg: TrainConfig):
             ),
             jax.random.split(rollout_rng, horizon),
         )
-        _, last_value, _ = agent(
+        _, last_value, _ = jax.lax.stop_gradient(agent(
             curr_obs[:, None, ...], curr_done[:, None, ...], agent_state
-        )
+        ))
         return (curr_obs, curr_done, env_state, agent_state), (
             obs,
             action,
@@ -107,7 +107,14 @@ def main(cfg: TrainConfig):
     agent_state = jnp.zeros((cfg.batch_size, 256))
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
-    for step in range(10):
+    # Create optimizer
+    tx = optax.chain(
+        optax.clip_by_global_norm(cfg.max_grad_norm),
+        optax.adam(learning_rate=cfg.learning_rate),
+    )
+    train_state = nnx.Optimizer(agent, tx)
+
+    for step in range(cfg.num_epochs):
         print(f"{step=}")
         rng, rollout_rng = jax.random.split(rng)
 
@@ -129,18 +136,20 @@ def main(cfg: TrainConfig):
         )
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
-        
-        agent.loss(obs, reset, agent_state, action, reward, done, log_prob, value)
+
+        loss_fn = lambda model: model.loss(
+            obs, reset, agent_state, action, reward, done, log_prob, value
+        )
+        print(f"loss before backprop: {loss_fn(agent)}")
+
+        grads = nnx.grad(loss_fn)(train_state.model)
+
+        train_state.update(grads=grads)
+
+        print(f"loss after backprop: {loss_fn(agent)}")
 
         agent_state = next_agent_state
         curr_done = next_done
-
-    # Create optimizer
-    tx = optax.chain(
-        optax.clip_by_global_norm(cfg.max_grad_norm),
-        optax.adam(learning_rate=cfg.learning_rate),
-    )
-    train_state = nnx.Optimizer(agent, tx)
 
 
 if __name__ == "__main__":
