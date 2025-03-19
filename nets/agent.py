@@ -35,6 +35,7 @@ class Agent(nnx.Module):
     def __call__(self, obs, prev_state):
         B, T, *_ = obs.shape
         z = self.encoder(obs)
+        z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
         prev_state, y = self.rnn(prev_state, z)
