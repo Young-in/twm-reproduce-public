@@ -29,14 +29,16 @@ def main(cfg: TrainConfig):
     env = AutoResetEnvWrapper(env)
     env = BatchEnvWrapper(env, cfg.batch_size)
 
-    @functools.partial(nnx.jit, static_argnums=(3,))
-    def rollout(agent, curr_obs, env_state, horizon, rollout_rng):
-        agent_state = jnp.zeros((curr_obs.shape[0], 256))
-
+    @functools.partial(nnx.jit, static_argnames=("horizon",))
+    def rollout(
+        agent, agent_state, curr_obs, curr_done, env_state, horizon, rollout_rng
+    ):
         def one_step(state, rng):
-            obs, env_state, agent_state = state
+            obs, done, env_state, agent_state = state
 
-            pi, value, agent_state = agent(obs[:, None, ...], agent_state)
+            pi, value, agent_state = agent(
+                obs[:, None, ...], done[:, None, ...], agent_state
+            )
             rng, sample_rng = jax.random.split(rng)
             action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
 
@@ -48,7 +50,7 @@ def main(cfg: TrainConfig):
             next_obs, env_state, reward, done, info = env.step(
                 step_rng, env_state, action, env_params
             )
-            return (next_obs, env_state, agent_state), (
+            return (next_obs, done, env_state, agent_state), (
                 obs,
                 action,
                 log_prob,
@@ -57,7 +59,7 @@ def main(cfg: TrainConfig):
                 done,
             )
 
-        (curr_obs, env_state, agent_state), (
+        (curr_obs, curr_done, env_state, agent_state), (
             obs,
             action,
             log_prob,
@@ -69,13 +71,16 @@ def main(cfg: TrainConfig):
         )(
             (
                 curr_obs,
+                curr_done,
                 env_state,
                 agent_state,
             ),
             jax.random.split(rollout_rng, horizon),
         )
-        _, last_value, _ = agent(curr_obs[:, None, ...], agent_state)
-        return (curr_obs, env_state), (
+        _, last_value, _ = agent(
+            curr_obs[:, None, ...], curr_done[:, None, ...], agent_state
+        )
+        return (curr_obs, curr_done, env_state, agent_state), (
             obs,
             action,
             log_prob,
@@ -99,20 +104,36 @@ def main(cfg: TrainConfig):
     end_time = time.time()
     print(f"Reset time: {end_time - start_time:.2f}s")
 
+    agent_state = jnp.zeros((cfg.batch_size, 256))
+    curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
+
     for step in range(10):
         print(f"{step=}")
         rng, rollout_rng = jax.random.split(rng)
 
-        (curr_obs, env_state), (obs, action, log_prob, value, reward, done) = rollout(
+        (curr_obs, next_done, env_state, next_agent_state), (
+            obs,
+            action,
+            log_prob,
+            value,
+            reward,
+            done,
+        ) = rollout(
             agent,
+            agent_state,
             curr_obs,
+            curr_done,
             env_state,
             cfg.rollout_horizon,
             rollout_rng,
         )
 
-        agent_state = jnp.zeros((curr_obs.shape[0], 256))
-        agent.loss(obs, agent_state, action, reward, done, log_prob, value)
+        reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
+        
+        agent.loss(obs, reset, agent_state, action, reward, done, log_prob, value)
+
+        agent_state = next_agent_state
+        curr_done = next_done
 
     # Create optimizer
     tx = optax.chain(
