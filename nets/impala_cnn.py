@@ -21,7 +21,7 @@ class ResNetBlock(nnx.Module):
         x = nnx.relu(x)
         x = self.norm(x)
         x = self.conv(x)
-        return x
+        return input_x + x
 
 
 class ImpalaBlock(nnx.Module):
