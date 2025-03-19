@@ -125,7 +125,7 @@ class ActorCritic(nnx.Module):
 
     def loss(self, state, action, reward, done, old_pi_log_prob, old_value):
         """
-        state: (B, T + 1, 8 * 8 * 128 + 256)
+        state: (B, T, 8 * 8 * 128 + 256)
         action: (B, T)
         reward: (B, T)
         done: (B, T)
@@ -135,9 +135,16 @@ class ActorCritic(nnx.Module):
 
         delta = reward + (1 - done) * self.gamma * old_value[:, 1:] - old_value[:, :-1]
 
-        adv = nnx.scan(lambda d, dt: self.gamma * self.ld * d + dt, reverse=True)(
-            0, delta
-        )
+        def calc_adv(next_adv, dt):
+            adv = self.gamma * self.ld * next_adv + dt
+            return adv, adv
+
+        _, adv = nnx.scan(
+            calc_adv,
+            in_axes=(nnx.transforms.iteration.Carry, 1),
+            out_axes=(nnx.transforms.iteration.Carry, 1),
+            reverse=True,
+        )(jnp.zeros_like(delta[:, 0]), delta)
 
         adv = (1 - done) * adv + done * delta
 
