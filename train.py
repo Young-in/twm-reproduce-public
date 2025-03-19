@@ -14,48 +14,6 @@ from nets.agent import Agent
 from configs import TrainConfig
 
 
-def rollout(agent, env, env_params, curr_obs, env_state, horizon, rollout_rng):
-    agent_state = jnp.zeros((curr_obs.shape[0], 256))
-
-    rollout_rngs = jax.random.split(rollout_rng, horizon)
-    obs = curr_obs
-    obss = [obs]
-    actions = []
-    log_probs = []
-    values = []
-    rewards = []
-    dones = []
-    for i in range(horizon):
-        obs = obs[:, None, ...]
-
-        pi, value, agent_state = agent(obs, agent_state)
-        rng, sample_rng = jax.random.split(rollout_rngs[i])
-        action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
-
-        action = action.squeeze(axis=1)
-        log_prob = log_prob.squeeze(axis=1)
-
-        rng, step_rng = jax.random.split(rng)
-        obs, env_state, reward, done, info = env.step(
-            step_rng, env_state, action, env_params
-        )
-        obss.append(obs)
-        actions.append(action)
-        log_probs.append(log_prob)
-        values.append(value)
-        rewards.append(reward)
-        dones.append(done)
-
-    return (obs, env_state), (
-        jnp.concatenate(obss),
-        jnp.concatenate(actions),
-        jnp.concatenate(log_probs),
-        jnp.concatenate(values),
-        jnp.concatenate(rewards),
-        jnp.concatenate(dones),
-    )
-
-
 @pyrallis.wrap()
 def main(cfg: TrainConfig):
     rng = jax.random.PRNGKey(0)
@@ -71,11 +29,68 @@ def main(cfg: TrainConfig):
     env = AutoResetEnvWrapper(env)
     env = BatchEnvWrapper(env, cfg.batch_size)
 
+    @functools.partial(nnx.jit, static_argnums=(3,))
+    def rollout(agent, curr_obs, env_state, horizon, rollout_rng):
+        agent_state = jnp.zeros((curr_obs.shape[0], 256))
+
+        def one_step(state, rng):
+            obs, env_state, agent_state = state
+
+            pi, value, agent_state = agent(obs[:, None, ...], agent_state)
+            rng, sample_rng = jax.random.split(rng)
+            action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
+
+            action = action.squeeze(axis=1)
+            log_prob = log_prob.squeeze(axis=1)
+            value = value.squeeze(axis=1)
+
+            rng, step_rng = jax.random.split(rng)
+            next_obs, env_state, reward, done, info = env.step(
+                step_rng, env_state, action, env_params
+            )
+            return (next_obs, env_state, agent_state), (
+                obs,
+                action,
+                log_prob,
+                value,
+                reward,
+                done,
+            )
+
+        (curr_obs, env_state, agent_state), (
+            obs,
+            action,
+            log_prob,
+            value,
+            reward,
+            done,
+        ) = nnx.scan(
+            one_step, out_axes=(nnx.transforms.iteration.Carry, 1), length=horizon
+        )(
+            (
+                curr_obs,
+                env_state,
+                agent_state,
+            ),
+            jax.random.split(rollout_rng, horizon),
+        )
+        _, last_value, _ = agent(curr_obs[:, None, ...], agent_state)
+        return (curr_obs, env_state), (
+            obs,
+            action,
+            log_prob,
+            jnp.concatenate((value, last_value), axis=1),
+            reward,
+            done,
+        )
+
     agent = Agent(
         num_actions=env.action_space(env_params).n,
         ac_config=cfg.ac_config,
         rngs=nnx.Rngs(0),
     )
+
+    nnx.display(agent)
 
     rng, env_rng = jax.random.split(rng)
 
@@ -90,13 +105,14 @@ def main(cfg: TrainConfig):
 
         (curr_obs, env_state), (obs, action, log_prob, value, reward, done) = rollout(
             agent,
-            env,
-            env_params,
             curr_obs,
             env_state,
             cfg.rollout_horizon,
             rollout_rng,
         )
+
+        agent_state = jnp.zeros((curr_obs.shape[0], 256))
+        agent.loss(obs, agent_state, action, reward, done, log_prob, value)
 
     # Create optimizer
     tx = optax.chain(
