@@ -3,6 +3,7 @@ import jax.numpy as jnp
 
 from nets.impala_cnn import ImpalaCNN
 from nets.actor_critic import ActorCritic
+from nets.rnn import RNN
 
 
 class Agent(nnx.Module):
@@ -11,7 +12,7 @@ class Agent(nnx.Module):
             channels=[64, 64, 128],
             rngs=rngs,
         )
-        self.rnn_cell = nnx.GRUCell(
+        self.rnn = RNN(
             in_features=8 * 8 * 128,
             hidden_features=256,
             rngs=rngs,
@@ -27,15 +28,7 @@ class Agent(nnx.Module):
         z = self.encoder(obs)
         z = z.reshape((B, T, -1))
 
-        def rnn_step(prev_state, x):
-            prev_state, y = self.rnn_cell(prev_state, x)
-            return prev_state, y
-
-        prev_state, y = nnx.scan(
-            rnn_step,
-            in_axes=(nnx.transforms.iteration.Carry, 1),
-            out_axes=(nnx.transforms.iteration.Carry, 1),
-        )(prev_state, z)
+        prev_state, y = self.rnn(prev_state, z)
 
         pi, v = self.actor_critic(jnp.concatenate([z, y], axis=-1))
         return pi, v, prev_state
