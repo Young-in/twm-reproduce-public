@@ -13,10 +13,10 @@ class ActorCriticConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 4
-    rollout_horizon: int = 8
+    batch_size: int = 16
+    rollout_horizon: int = 64
     num_epochs: int = 10
-    learning_rate: float = 0.001
+    learning_rate: float = 0.00045
     max_grad_norm: float = 0.5
 
     ac_config: ActorCriticConfig = ActorCriticConfig()
