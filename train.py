@@ -115,17 +115,26 @@ def main(cfg: TrainConfig):
     agent_state = jnp.zeros((cfg.batch_size, 256))
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
+    def lr_schedule(count):
+        return cfg.learning_rate * (
+            1.0
+            - (count // (cfg.num_minibatches * cfg.num_epochs))
+            / (cfg.total_env_interactions // (cfg.batch_size * cfg.rollout_horizon))
+        )
+
     # Create optimizer
     tx = optax.chain(
         optax.clip_by_global_norm(cfg.max_grad_norm),
-        optax.adam(learning_rate=cfg.learning_rate),
+        optax.adam(learning_rate=lr_schedule, eps=1e-5),
     )
     train_state = nnx.Optimizer(agent, tx)
 
     tgt_mean = 0
     tgt_std = 0
 
-    for step in range(0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon):
+    for step in range(
+        0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon
+    ):
         print(f"{step=}")
         rng, rollout_rng = jax.random.split(rng)
 
@@ -162,8 +171,14 @@ def main(cfg: TrainConfig):
                 end_idx = (i + 1) * (cfg.batch_size // cfg.num_minibatches)
 
                 tgt_mini = tgt[start_idx:end_idx]
-                tgt_mean = cfg.ac_config.tgt_discount * tgt_mean + (1 - cfg.ac_config.tgt_discount) * tgt_mini.mean()
-                tgt_std = cfg.ac_config.tgt_discount * tgt_std + (1 - cfg.ac_config.tgt_discount) * tgt_mini.std()
+                tgt_mean = (
+                    cfg.ac_config.tgt_discount * tgt_mean
+                    + (1 - cfg.ac_config.tgt_discount) * tgt_mini.mean()
+                )
+                tgt_std = (
+                    cfg.ac_config.tgt_discount * tgt_std
+                    + (1 - cfg.ac_config.tgt_discount) * tgt_mini.std()
+                )
 
                 tgt_mini = (tgt_mini - tgt_mean) / (tgt_std + 1e-8)
 
