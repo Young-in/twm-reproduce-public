@@ -14,7 +14,7 @@ from craftax import craftax_env
 from env.wrapper import AutoResetEnvWrapper, BatchEnvWrapper
 from nets.agent import Agent
 from configs import TrainConfig
-
+from utils.gae import calc_adv_tgt
 
 @pyrallis.wrap()
 def main(cfg: TrainConfig):
@@ -121,8 +121,12 @@ def main(cfg: TrainConfig):
     )
     train_state = nnx.Optimizer(agent, tx)
 
-    for step in range(cfg.num_epochs):
+    env_interactions = 0
+
+    step = 0
+    while env_interactions < cfg.total_env_interactions:
         print(f"{step=}")
+        step += 1
         rng, rollout_rng = jax.random.split(rng)
 
         (curr_obs, next_done, env_state, next_agent_state), (
@@ -142,32 +146,36 @@ def main(cfg: TrainConfig):
             rollout_rng,
         )
 
+        env_interactions += cfg.batch_size * cfg.rollout_horizon
+
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
-        for i in range(cfg.num_minibatches):
-            start_idx = i * (cfg.batch_size // cfg.num_minibatches)
-            end_idx = (i + 1) * (cfg.batch_size // cfg.num_minibatches)
-            loss_fn = lambda model: model.loss(
-                obs[start_idx:end_idx],
-                reset[start_idx:end_idx],
-                agent_state[start_idx:end_idx],
-                action[start_idx:end_idx],
-                reward[start_idx:end_idx],
-                done[start_idx:end_idx],
-                log_prob[start_idx:end_idx],
-                value[start_idx:end_idx],
-            )
+        adv, tgt = calc_adv_tgt(reward, done, value, cfg.ac_config.gamma, cfg.ac_config.ld)
 
-            loss, grads = nnx.value_and_grad(loss_fn)(train_state.model)
-            print(f"loss before backprop: {loss}")
+        for epoch in range(cfg.num_epochs):
+            for i in range(cfg.num_minibatches):
+                start_idx = i * (cfg.batch_size // cfg.num_minibatches)
+                end_idx = (i + 1) * (cfg.batch_size // cfg.num_minibatches)
+                loss_fn = lambda model: model.loss(
+                    obs[start_idx:end_idx],
+                    reset[start_idx:end_idx],
+                    agent_state[start_idx:end_idx],
+                    action[start_idx:end_idx],
+                    log_prob[start_idx:end_idx],
+                    adv[start_idx:end_idx],
+                    tgt[start_idx:end_idx],
+                )
 
-            train_state.update(grads=grads)
+                loss, grads = nnx.value_and_grad(loss_fn)(train_state.model)
+                print(f"loss before backprop: {loss}")
 
-            wandb.log(
-                {
-                    "loss": loss,
-                }
-            )
+                train_state.update(grads=grads)
+
+                wandb.log(
+                    {
+                        "loss": loss,
+                    }
+                )
 
         agent_state = next_agent_state
         curr_done = next_done

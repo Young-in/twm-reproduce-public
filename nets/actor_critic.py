@@ -123,32 +123,14 @@ class ActorCritic(nnx.Module):
     def __call__(self, state):
         return self.actor(state), self.critic(state)
 
-    def loss(self, state, action, reward, done, old_pi_log_prob, old_value):
+    def loss(self, state, action, old_pi_log_prob, adv, tgt):
         """
         state: (B, T, 8 * 8 * 128 + 256)
         action: (B, T)
-        reward: (B, T)
-        done: (B, T)
         old_pi_log_prob: (B, T)
-        old_value: (B, T + 1)
+        adv: (B, T)
+        tgt: (B, T)
         """
-
-        delta = reward + (1 - done) * self.gamma * old_value[:, 1:] - old_value[:, :-1]
-
-        def calc_adv(next_adv, dt):
-            adv = self.gamma * self.ld * next_adv + dt
-            return adv, adv
-
-        _, adv = nnx.scan(
-            calc_adv,
-            in_axes=(nnx.transforms.iteration.Carry, 1),
-            out_axes=(nnx.transforms.iteration.Carry, 1),
-            reverse=True,
-        )(jnp.zeros_like(delta[:, 0]), delta)
-
-        adv = (1 - done) * adv + done * delta
-
-        tgt = adv + old_value[:, :-1]
 
         pi, v = self(state)
         log_r = pi.log_prob(action) - old_pi_log_prob
