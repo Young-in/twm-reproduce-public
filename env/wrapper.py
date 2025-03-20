@@ -6,7 +6,7 @@ from flax import struct
 from functools import partial
 from typing import Optional, Tuple, Union, Any
 
-
+# From https://github.com/MichaelTMatthews/Craftax_Baselines/blob/main/wrappers.py
 class GymnaxWrapper(object):
     """Base class for Gymnax wrappers."""
 
