@@ -142,7 +142,14 @@ class ActorCritic(nnx.Module):
         ).mean()
         value_loss = jnp.square(v - tgt).mean()
         ent_loss = -pi.entropy().mean()
-
-        return (
+        total_loss = (
             policy_loss + self.td_loss_coef * value_loss + self.ent_loss_coef * ent_loss
         )
+
+        metrics = {
+            "policy_loss": policy_loss,
+            "value_loss": value_loss,
+            "ent_loss": ent_loss,
+        }
+
+        return total_loss, metrics

@@ -207,7 +207,7 @@ def main(cfg: TrainConfig):
                     tgt_mini,
                 )
 
-                loss, grads = nnx.value_and_grad(loss_fn)(train_state.model)
+                (loss, metrics), grads = nnx.value_and_grad(loss_fn, has_aux=True)(train_state.model)
 
                 train_state.update(grads=grads)
 
@@ -215,6 +215,7 @@ def main(cfg: TrainConfig):
                     {
                         "loss": loss,
                         "step": step,
+                        **metrics,
                     }
                 )
 
