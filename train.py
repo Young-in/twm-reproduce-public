@@ -160,6 +160,14 @@ def main(cfg: TrainConfig):
             rollout_rng,
         )
 
+        wandb.log(
+            {
+                "rollout_reward": reward.mean(),
+                "rollout_done": done.mean(),
+                "rollout_log_prob": log_prob.mean(),
+            }
+        )
+
         if info['returned_episode'].any():
             avg_episode_returns = jnp.average(info['returned_episode_returns'], weights=info['returned_episode'])
 
