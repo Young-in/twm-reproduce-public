@@ -6,6 +6,7 @@ class ActorCriticConfig:
     eps: float = 0.2
     gamma: float = 0.925
     ld: float = 0.625
+    tgt_discount: float = 0.95
 
     td_loss_coef: float = 2.0
     ent_loss_coef: float = 0.01

@@ -16,6 +16,7 @@ from nets.agent import Agent
 from configs import TrainConfig
 from utils.gae import calc_adv_tgt
 
+
 @pyrallis.wrap()
 def main(cfg: TrainConfig):
     wandb.init(
@@ -121,9 +122,12 @@ def main(cfg: TrainConfig):
     )
     train_state = nnx.Optimizer(agent, tx)
 
-    env_interactions = 0
+    tgt_mean = 0
+    tgt_std = 0
 
+    env_interactions = 0
     step = 0
+
     while env_interactions < cfg.total_env_interactions:
         print(f"{step=}")
         step += 1
@@ -150,12 +154,25 @@ def main(cfg: TrainConfig):
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
-        adv, tgt = calc_adv_tgt(reward, done, value, cfg.ac_config.gamma, cfg.ac_config.ld)
+        value = value * tgt_std + tgt_mean
+
+        adv, tgt = calc_adv_tgt(
+            reward, done, value, cfg.ac_config.gamma, cfg.ac_config.ld
+        )
+
+        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
         for epoch in range(cfg.num_epochs):
             for i in range(cfg.num_minibatches):
                 start_idx = i * (cfg.batch_size // cfg.num_minibatches)
                 end_idx = (i + 1) * (cfg.batch_size // cfg.num_minibatches)
+
+                tgt_mini = tgt[start_idx:end_idx]
+                tgt_mean = cfg.ac_config.tgt_discount * tgt_mean + (1 - cfg.ac_config.tgt_discount) * tgt_mini.mean()
+                tgt_std = cfg.ac_config.tgt_discount * tgt_std + (1 - cfg.ac_config.tgt_discount) * tgt_mini.std()
+
+                tgt_mini = (tgt_mini - tgt_mean) / (tgt_std + 1e-8)
+
                 loss_fn = lambda model: model.loss(
                     obs[start_idx:end_idx],
                     reset[start_idx:end_idx],
@@ -163,7 +180,7 @@ def main(cfg: TrainConfig):
                     action[start_idx:end_idx],
                     log_prob[start_idx:end_idx],
                     adv[start_idx:end_idx],
-                    tgt[start_idx:end_idx],
+                    tgt_mini,
                 )
 
                 loss, grads = nnx.value_and_grad(loss_fn)(train_state.model)
