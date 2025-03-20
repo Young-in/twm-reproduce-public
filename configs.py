@@ -16,7 +16,7 @@ class ActorCriticConfig:
 class TrainConfig:
     total_env_interactions: int = 1_000_000
     batch_size: int = 48
-    rollout_horizon: int = 92
+    rollout_horizon: int = 96
     num_epochs: int = 4
     learning_rate: float = 0.00045
     max_grad_norm: float = 0.5
