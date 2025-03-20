@@ -1,4 +1,5 @@
 from dataclasses import asdict
+import functools
 from flax import nnx
 import jax.numpy as jnp
 
@@ -43,8 +44,9 @@ class Agent(nnx.Module):
         pi, v = self.actor_critic(jnp.concatenate([z, y], axis=-1))
         return pi, v, prev_state
 
+    @nnx.jit
     def loss(self, obs, reset, prev_state, action, old_pi_log_prob, adv, tgt):
-        B, T, *_ = obs.shape
+        B, T, *_ = obs.shape 
         z = self.encoder(obs)
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
