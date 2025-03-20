@@ -25,8 +25,6 @@ def main(cfg: TrainConfig):
         name="model-free",
     )
     rng = jax.random.PRNGKey(0)
-    rng, _rng = jax.random.split(rng)
-    rngs = jax.random.split(_rng, 3)
 
     # Create environment
     env = craftax_env.make_craftax_env_from_name(
@@ -135,6 +133,7 @@ def main(cfg: TrainConfig):
 
     tgt_mean = 0
     tgt_std = 0
+    debiasing = 0
 
     for step in range(
         0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon
@@ -165,16 +164,19 @@ def main(cfg: TrainConfig):
                 "rollout_reward": reward.mean(),
                 "rollout_done": done.mean(),
                 "rollout_log_prob": log_prob.mean(),
+                "rollout_value": value.mean(),
             }
         )
 
-        if info['returned_episode'].any():
-            avg_episode_returns = jnp.average(info['returned_episode_returns'], weights=info['returned_episode'])
+        if info["returned_episode"].any():
+            avg_episode_returns = jnp.average(
+                info["returned_episode_returns"], weights=info["returned_episode"]
+            )
 
             wandb.log(
                 {
                     "rollout_return": avg_episode_returns,
-                    "rollout_ends": info['returned_episode'].sum(),
+                    "rollout_ends": info["returned_episode"].sum(),
                 }
             )
 
@@ -203,7 +205,14 @@ def main(cfg: TrainConfig):
                     + (1 - cfg.ac_config.tgt_discount) * tgt_mini.std()
                 )
 
-                tgt_mini = (tgt_mini - tgt_mean) / (tgt_std + 1e-8)
+                debiasing = (
+                    cfg.ac_config.tgt_discount * debiasing
+                    + (1 - cfg.ac_config.tgt_discount) * 1
+                )
+
+                tgt_mini = (tgt_mini - tgt_mean / jnp.maximum(debiasing, 1e-2)) / (
+                    jnp.maximum(tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1) + 1e-8
+                )
 
                 loss_fn = lambda model: model.loss(
                     obs[start_idx:end_idx],
@@ -215,7 +224,9 @@ def main(cfg: TrainConfig):
                     tgt_mini,
                 )
 
-                (loss, metrics), grads = nnx.value_and_grad(loss_fn, has_aux=True)(train_state.model)
+                (loss, metrics), grads = nnx.value_and_grad(loss_fn, has_aux=True)(
+                    train_state.model
+                )
 
                 train_state.update(grads=grads)
 
