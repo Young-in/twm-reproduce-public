@@ -1,6 +1,8 @@
+from dataclasses import asdict
 import functools
 import time
 import pyrallis
+import wandb
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +18,11 @@ from configs import TrainConfig
 
 @pyrallis.wrap()
 def main(cfg: TrainConfig):
+    wandb.init(
+        project="twm_reproduce",
+        config=asdict(cfg),
+        name="model-free",
+    )
     rng = jax.random.PRNGKey(0)
     rng, _rng = jax.random.split(rng)
     rngs = jax.random.split(_rng, 3)
@@ -77,9 +84,9 @@ def main(cfg: TrainConfig):
             ),
             jax.random.split(rollout_rng, horizon),
         )
-        _, last_value, _ = jax.lax.stop_gradient(agent(
-            curr_obs[:, None, ...], curr_done[:, None, ...], agent_state
-        ))
+        _, last_value, _ = jax.lax.stop_gradient(
+            agent(curr_obs[:, None, ...], curr_done[:, None, ...], agent_state)
+        )
         return (curr_obs, curr_done, env_state, agent_state), (
             obs,
             action,
@@ -137,16 +144,30 @@ def main(cfg: TrainConfig):
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
-        loss_fn = lambda model: model.loss(
-            obs, reset, agent_state, action, reward, done, log_prob, value
-        )
-        print(f"loss before backprop: {loss_fn(agent)}")
+        for i in range(cfg.num_minibatches):
+            start_idx = i * (cfg.batch_size // cfg.num_minibatches)
+            end_idx = (i + 1) * (cfg.batch_size // cfg.num_minibatches)
+            loss_fn = lambda model: model.loss(
+                obs[start_idx:end_idx],
+                reset[start_idx:end_idx],
+                agent_state[start_idx:end_idx],
+                action[start_idx:end_idx],
+                reward[start_idx:end_idx],
+                done[start_idx:end_idx],
+                log_prob[start_idx:end_idx],
+                value[start_idx:end_idx],
+            )
 
-        grads = nnx.grad(loss_fn)(train_state.model)
+            loss, grads = nnx.value_and_grad(loss_fn)(train_state.model)
+            print(f"loss before backprop: {loss}")
 
-        train_state.update(grads=grads)
+            train_state.update(grads=grads)
 
-        print(f"loss after backprop: {loss_fn(agent)}")
+            wandb.log(
+                {
+                    "loss": loss,
+                }
+            )
 
         agent_state = next_agent_state
         curr_done = next_done
