@@ -125,12 +125,8 @@ def main(cfg: TrainConfig):
     tgt_mean = 0
     tgt_std = 0
 
-    env_interactions = 0
-    step = 0
-
-    while env_interactions < cfg.total_env_interactions:
+    for step in range(0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon):
         print(f"{step=}")
-        step += 1
         rng, rollout_rng = jax.random.split(rng)
 
         (curr_obs, next_done, env_state, next_agent_state), (
@@ -149,8 +145,6 @@ def main(cfg: TrainConfig):
             cfg.rollout_horizon,
             rollout_rng,
         )
-
-        env_interactions += cfg.batch_size * cfg.rollout_horizon
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
@@ -191,6 +185,7 @@ def main(cfg: TrainConfig):
                 wandb.log(
                     {
                         "loss": loss,
+                        "step": step,
                     }
                 )
 
