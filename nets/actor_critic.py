@@ -14,6 +14,7 @@ class Actor(nnx.Module):
         self.linear1 = nnx.Linear(
             in_features=input_dim,
             out_features=intermediate_dim,
+            kernel_init=nnx.initializers.orthogonal(2),
             rngs=rngs,
         )
         self.linear2 = nnx.Linear(
@@ -33,6 +34,7 @@ class Actor(nnx.Module):
         self.linear4 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=num_actions,
+            kernel_init=nnx.initializers.orthogonal(0.01),
             rngs=rngs,
         )
 
@@ -56,6 +58,7 @@ class Critic(nnx.Module):
         self.linear1 = nnx.Linear(
             in_features=input_dim,
             out_features=intermediate_dim,
+            kernel_init=nnx.initializers.orthogonal(2),
             rngs=rngs,
         )
         self.linear2 = nnx.Linear(
@@ -75,6 +78,7 @@ class Critic(nnx.Module):
         self.linear4 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=1,
+            kernel_init=nnx.initializers.orthogonal(1.0),
             rngs=rngs,
         )
 
@@ -150,6 +154,8 @@ class ActorCritic(nnx.Module):
             "policy_loss": policy_loss,
             "value_loss": value_loss,
             "ent_loss": ent_loss,
+            "advantage": adv,
+            "target": tgt,
         }
 
         return total_loss, metrics
