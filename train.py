@@ -11,7 +11,7 @@ import optax
 
 from craftax import craftax_env
 
-from env.wrapper import AutoResetEnvWrapper, BatchEnvWrapper
+from env.wrapper import AutoResetEnvWrapper, BatchEnvWrapper, LogWrapper
 from nets.agent import Agent
 from configs import TrainConfig
 from utils.gae import calc_adv_tgt
@@ -34,6 +34,7 @@ def main(cfg: TrainConfig):
     )
     env_params = env.default_params
 
+    env = LogWrapper(env)
     env = AutoResetEnvWrapper(env)
     env = BatchEnvWrapper(env, cfg.batch_size)
 
@@ -65,6 +66,7 @@ def main(cfg: TrainConfig):
                 value,
                 reward,
                 done,
+                info,
             )
 
         (curr_obs, curr_done, env_state, agent_state), (
@@ -74,6 +76,7 @@ def main(cfg: TrainConfig):
             value,
             reward,
             done,
+            info,
         ) = nnx.scan(
             one_step, out_axes=(nnx.transforms.iteration.Carry, 1), length=horizon
         )(
@@ -95,6 +98,7 @@ def main(cfg: TrainConfig):
             jnp.concatenate((value, last_value), axis=1),
             reward,
             done,
+            info,
         )
 
     agent = Agent(
@@ -145,6 +149,7 @@ def main(cfg: TrainConfig):
             value,
             reward,
             done,
+            info,
         ) = rollout(
             agent,
             agent_state,
@@ -154,6 +159,16 @@ def main(cfg: TrainConfig):
             cfg.rollout_horizon,
             rollout_rng,
         )
+
+        if info['returned_episode'].any():
+            avg_episode_returns = jnp.average(info['returned_episode_returns'], weights=info['returned_episode'])
+
+            wandb.log(
+                {
+                    "rollout_return": avg_episode_returns,
+                    "rollout_ends": info['returned_episode'].sum(),
+                }
+            )
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
@@ -193,7 +208,6 @@ def main(cfg: TrainConfig):
                 )
 
                 loss, grads = nnx.value_and_grad(loss_fn)(train_state.model)
-                print(f"loss before backprop: {loss}")
 
                 train_state.update(grads=grads)
 
