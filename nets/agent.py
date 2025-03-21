@@ -21,8 +21,17 @@ class Agent(nnx.Module):
             channels=[64, 64, 128],
             rngs=rngs,
         )
-        self.rnn = RNN(
+        self.norm = nnx.LayerNorm(
+            num_features=8 * 8 * 128,
+            rngs=rngs,
+        )
+        self.linear = nnx.Linear(
             in_features=8 * 8 * 128,
+            out_features=256,
+            rngs=rngs,
+        )
+        self.rnn = RNN(
+            in_features=256,
             hidden_features=256,
             rngs=rngs,
         )
@@ -35,23 +44,35 @@ class Agent(nnx.Module):
 
     def __call__(self, obs, reset, prev_state):
         B, T, *_ = obs.shape
-        z = self.encoder(obs)
+        z = self.encoder(obs.reshape(B * T, *_))
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
-        prev_state, y = self.rnn(prev_state, z, reset)
+        r_in = self.norm(z)
+        r_in = self.linear(r_in)
+        r_in = nnx.relu(r_in)
 
-        pi, v = self.actor_critic(jnp.concatenate([z, y], axis=-1))
+        prev_state, y = self.rnn(prev_state, r_in, reset)
+        y = nnx.relu(y)
+
+        state = jnp.concatenate([z, y], axis=-1)
+
+        pi, v = self.actor_critic(state)
         return pi, v, prev_state
 
     @nnx.jit
     def loss(self, obs, reset, prev_state, action, old_pi_log_prob, adv, tgt):
-        B, T, *_ = obs.shape 
-        z = self.encoder(obs)
+        B, T, *_ = obs.shape
+        z = self.encoder(obs.reshape(B * T, *_))
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
-        prev_state, y = self.rnn(prev_state, z, reset)
+        r_in = self.norm(z)
+        r_in = self.linear(r_in)
+        r_in = nnx.relu(r_in)
+
+        prev_state, y = self.rnn(prev_state, r_in, reset)
+        y = nnx.relu(y)
 
         state = jnp.concatenate([z, y], axis=-1)
 
