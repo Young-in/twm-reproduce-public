@@ -8,12 +8,13 @@ class ActorCriticConfig:
     ld: float = 0.625
     tgt_discount: float = 0.95
 
-    td_loss_coef: float = 2.0
+    td_loss_coef: float = 0.5
     ent_loss_coef: float = 0.01
 
 
 @dataclass
 class TrainConfig:
+    seed: int = 0
     total_env_interactions: int = 1_000_000
     batch_size: int = 48
     rollout_horizon: int = 96

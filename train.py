@@ -24,7 +24,7 @@ def main(cfg: TrainConfig):
         config=asdict(cfg),
         name="model-free",
     )
-    rng = jax.random.PRNGKey(0)
+    rng = jax.random.PRNGKey(cfg.seed)
 
     # Create environment
     env = craftax_env.make_craftax_env_from_name(
@@ -102,7 +102,7 @@ def main(cfg: TrainConfig):
     agent = Agent(
         num_actions=env.action_space(env_params).n,
         ac_config=cfg.ac_config,
-        rngs=nnx.Rngs(0),
+        rngs=nnx.Rngs(cfg.seed),
     )
 
     nnx.display(agent)
@@ -165,6 +165,9 @@ def main(cfg: TrainConfig):
                 "rollout_done": done.mean(),
                 "rollout_log_prob": log_prob.mean(),
                 "rollout_value": value.mean(),
+                "target_mean": tgt_mean,
+                "target_std": tgt_std,
+                "debiasing": debiasing,
             }
         )
 
