@@ -20,9 +20,10 @@ from utils.gae import calc_adv_tgt
 @pyrallis.wrap()
 def main(cfg: TrainConfig):
     wandb.init(
-        project="twm_reproduce",
+        project=cfg.wandb_config.project_name,
         config=asdict(cfg),
-        name="model-free",
+        name=f"{cfg.wandb_config.exp_name}_s{cfg.seed}",
+        group=cfg.wandb_config.group_name,
     )
     rng = jax.random.PRNGKey(cfg.seed)
 

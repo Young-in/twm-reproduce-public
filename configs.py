@@ -11,6 +11,10 @@ class ActorCriticConfig:
     td_loss_coef: float = 0.5
     ent_loss_coef: float = 0.01
 
+class WandBConfig:
+    project_name: str = "twm_reproduce"
+    exp_name: str = "twm"
+    group_name: str = "twm"
 
 @dataclass
 class TrainConfig:
@@ -24,4 +28,5 @@ class TrainConfig:
 
     num_minibatches: int = 8
 
+    wandb_config: WandBConfig = WandBConfig()
     ac_config: ActorCriticConfig = ActorCriticConfig()
