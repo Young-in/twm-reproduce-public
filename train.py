@@ -168,7 +168,8 @@ def main(cfg: TrainConfig):
                 "target_mean": tgt_mean,
                 "target_std": tgt_std,
                 "debiasing": debiasing,
-            }
+            },
+            step=step + cfg.batch_size * cfg.rollout_horizon,
         )
 
         if info["returned_episode"].any():
@@ -180,7 +181,8 @@ def main(cfg: TrainConfig):
                 {
                     "rollout_return": avg_episode_returns,
                     "rollout_ends": info["returned_episode"].sum(),
-                }
+                },
+                step=step + cfg.batch_size * cfg.rollout_horizon,
             )
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
@@ -192,6 +194,8 @@ def main(cfg: TrainConfig):
         )
 
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+        mini_logs = []
 
         for epoch in range(cfg.num_epochs):
             for i in range(cfg.num_minibatches):
@@ -233,13 +237,19 @@ def main(cfg: TrainConfig):
 
                 train_state.update(grads=grads)
 
-                wandb.log(
+                mini_logs.append(
                     {
                         "loss": loss,
-                        "step": step,
                         **metrics,
                     }
                 )
+
+        logs = {}
+
+        for k in mini_logs[0].keys():
+            logs[k] = jnp.array([l[k] for l in mini_logs]).mean()
+
+        wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
         agent_state = next_agent_state
         curr_done = next_done
