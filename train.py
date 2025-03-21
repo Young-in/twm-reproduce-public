@@ -115,7 +115,7 @@ def main(cfg: TrainConfig):
     end_time = time.time()
     print(f"Reset time: {end_time - start_time:.2f}s")
 
-    agent_state = jnp.zeros((cfg.batch_size, 256))
+    agent_state = agent.rnn.initialize_carry(cfg.batch_size)
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
     def lr_schedule(count):
