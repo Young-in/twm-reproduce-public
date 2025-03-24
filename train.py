@@ -188,7 +188,9 @@ def main(cfg: TrainConfig):
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
-        value = value * tgt_std + tgt_mean
+        value = value * jnp.maximum(
+            tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1
+        ) + tgt_mean / jnp.maximum(debiasing, 1e-2)
 
         adv, tgt = calc_adv_tgt(
             reward, done, value, cfg.ac_config.gamma, cfg.ac_config.ld
@@ -218,9 +220,9 @@ def main(cfg: TrainConfig):
                     + (1 - cfg.ac_config.tgt_discount) * 1
                 )
 
-                tgt_mini = (tgt_mini - tgt_mean / jnp.maximum(debiasing, 1e-2)) / (
-                    jnp.maximum(tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1) + 1e-8
-                )
+                tgt_mini = (
+                    tgt_mini - tgt_mean / jnp.maximum(debiasing, 1e-2)
+                ) / jnp.maximum(tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1)
 
                 loss_fn = lambda model: model.loss(
                     obs[start_idx:end_idx],

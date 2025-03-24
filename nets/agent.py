@@ -28,6 +28,7 @@ class Agent(nnx.Module):
         self.linear = nnx.Linear(
             in_features=8 * 8 * 128,
             out_features=256,
+            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
         )
         self.rnn = RNN(
