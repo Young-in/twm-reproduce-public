@@ -4,7 +4,7 @@ from slurm_launcher.sbatch_launcher import launch_tasks
 def run_exp():
     base_cmd = "python -B train.py"  # flexible one
     param_dict = {
-        "--seed": [0, 1, 2, 3, 4],
+        "--seed": range(10),
     }
     job_name = "twm-model-free"
 

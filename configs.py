@@ -8,7 +8,7 @@ class ActorCriticConfig:
     ld: float = 0.625
     tgt_discount: float = 0.95
 
-    td_loss_coef: float = 0.5
+    td_loss_coef: float = 2.0
     ent_loss_coef: float = 0.01
 
 class WandBConfig:
