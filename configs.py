@@ -11,6 +11,7 @@ class ActorCriticConfig:
     td_loss_coef: float = 2.0
     ent_loss_coef: float = 0.01
 
+@dataclass
 class WandBConfig:
     project_name: str = "twm_reproduce"
     exp_name: str = "twm"
