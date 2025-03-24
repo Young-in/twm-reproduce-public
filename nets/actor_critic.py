@@ -20,13 +20,13 @@ class Actor(nnx.Module):
         self.linear2 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=intermediate_dim,
-            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.01)),
+            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
         )
         self.linear3 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=intermediate_dim,
-            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.01)),
+            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
         )
         self.norm2 = nnx.LayerNorm(
@@ -36,7 +36,7 @@ class Actor(nnx.Module):
         self.linear4 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=num_actions,
-            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
+            kernel_init=nnx.initializers.orthogonal(0.01),
             rngs=rngs,
         )
 
@@ -66,13 +66,13 @@ class Critic(nnx.Module):
         self.linear2 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=intermediate_dim,
-            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.01)),
+            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
         )
         self.linear3 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=intermediate_dim,
-            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.01)),
+            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
         )
         self.norm2 = nnx.LayerNorm(
@@ -82,7 +82,7 @@ class Critic(nnx.Module):
         self.linear4 = nnx.Linear(
             in_features=intermediate_dim,
             out_features=1,
-            kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
+            kernel_init=nnx.initializers.orthogonal(1.0),
             rngs=rngs,
         )
 
