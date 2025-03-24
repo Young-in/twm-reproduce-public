@@ -13,6 +13,7 @@ class ResNetBlock(nnx.Module):
             in_features=features,
             out_features=features,
             kernel_size=(3, 3),
+            kernel_init=nnx.initializers.xavier_normal(),
             rngs=rngs,
         )
 
@@ -36,6 +37,7 @@ class ImpalaBlock(nnx.Module):
             in_features=in_features,
             out_features=out_features,
             kernel_size=(3, 3),
+            kernel_init=nnx.initializers.xavier_normal(),
             rngs=rngs,
         )
         self.resnet1 = ResNetBlock(
