@@ -39,13 +39,27 @@ def main(cfg: TrainConfig):
 
     @functools.partial(nnx.jit, static_argnames=("horizon",))
     def rollout(
-        agent, agent_state, curr_obs, curr_done, env_state, horizon, rollout_rng
+        agent,
+        agent_state,
+        codebook,
+        codebook_size,
+        curr_obs,
+        curr_done,
+        env_state,
+        horizon,
+        rollout_rng,
     ):
         def one_step(state, rng):
-            obs, done, env_state, agent_state = state
+            obs, done, env_state, agent_state, codebook, codebook_size = state
 
-            pi, value, agent_state = jax.lax.stop_gradient(
-                agent(obs[:, None, ...], done[:, None, ...], agent_state)
+            pi, value, agent_state, codebook, codebook_size = jax.lax.stop_gradient(
+                agent(
+                    obs[:, None, ...],
+                    done[:, None, ...],
+                    agent_state,
+                    codebook,
+                    codebook_size,
+                )
             )
             rng, sample_rng = jax.random.split(rng)
             action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
@@ -58,7 +72,7 @@ def main(cfg: TrainConfig):
             next_obs, env_state, reward, done, info = env.step(
                 step_rng, env_state, action, env_params
             )
-            return (next_obs, done, env_state, agent_state), (
+            return (next_obs, done, env_state, agent_state, codebook, codebook_size), (
                 obs,
                 action,
                 log_prob,
@@ -68,7 +82,7 @@ def main(cfg: TrainConfig):
                 info,
             )
 
-        (curr_obs, curr_done, env_state, agent_state), (
+        (curr_obs, curr_done, env_state, agent_state, codebook, codebook_size), (
             obs,
             action,
             log_prob,
@@ -84,13 +98,21 @@ def main(cfg: TrainConfig):
                 curr_done,
                 env_state,
                 agent_state,
+                codebook,
+                codebook_size,
             ),
             jax.random.split(rollout_rng, horizon),
         )
-        _, last_value, _ = jax.lax.stop_gradient(
-            agent(curr_obs[:, None, ...], curr_done[:, None, ...], agent_state)
+        _, last_value, _, codebook, codebook_size = jax.lax.stop_gradient(
+            agent(
+                curr_obs[:, None, ...],
+                curr_done[:, None, ...],
+                agent_state,
+                codebook,
+                codebook_size,
+            )
         )
-        return (curr_obs, curr_done, env_state, agent_state), (
+        return (curr_obs, curr_done, env_state, agent_state, codebook, codebook_size), (
             obs,
             action,
             log_prob,
@@ -116,6 +138,8 @@ def main(cfg: TrainConfig):
     print(f"Reset time: {end_time - start_time:.2f}s")
 
     agent_state = agent.rnn.initialize_carry(cfg.batch_size)
+    codebook = jnp.zeros((4096, 7, 7, 3)) - 1
+    codebook_size = jnp.array(0)
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
     def lr_schedule(count):
@@ -142,7 +166,7 @@ def main(cfg: TrainConfig):
         print(f"{step=}")
         rng, rollout_rng = jax.random.split(rng)
 
-        (curr_obs, next_done, env_state, next_agent_state), (
+        (curr_obs, next_done, env_state, next_agent_state, codebook, codebook_size), (
             obs,
             action,
             log_prob,
@@ -153,6 +177,8 @@ def main(cfg: TrainConfig):
         ) = rollout(
             agent,
             agent_state,
+            codebook,
+            codebook_size,
             curr_obs,
             curr_done,
             env_state,
@@ -228,6 +254,8 @@ def main(cfg: TrainConfig):
                     obs[start_idx:end_idx],
                     reset[start_idx:end_idx],
                     agent_state[start_idx:end_idx],
+                    codebook,
+                    codebook_size,
                     action[start_idx:end_idx],
                     log_prob[start_idx:end_idx],
                     adv[start_idx:end_idx],

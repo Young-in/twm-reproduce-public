@@ -6,6 +6,8 @@ import jax.numpy as jnp
 from nets.impala_cnn import ImpalaCNN
 from nets.actor_critic import ActorCritic
 from nets.rnn import RNN
+from nets.nnt import NearestNeighborTokenizer
+from nets.patch_mlp import PatchMLP
 from configs import ActorCriticConfig
 
 
@@ -17,16 +19,20 @@ class Agent(nnx.Module):
         *,
         rngs: nnx.Rngs
     ):
-        self.encoder = ImpalaCNN(
-            channels=[64, 64, 128],
+        self.encoder = NearestNeighborTokenizer(
+            codebook_size=4096,
+        )
+        self.embedding = nnx.Embed(
+            num_embeddings=4096,
+            features=128,
             rngs=rngs,
         )
         self.norm = nnx.LayerNorm(
-            num_features=8 * 8 * 128,
+            num_features=9 * 9 * 128,
             rngs=rngs,
         )
         self.linear = nnx.Linear(
-            in_features=8 * 8 * 128,
+            in_features=9 * 9 * 128,
             out_features=256,
             kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
@@ -37,15 +43,18 @@ class Agent(nnx.Module):
             rngs=rngs,
         )
         self.actor_critic = ActorCritic(
-            input_dim=(8 * 8 * 128) + 256,
+            input_dim=(9 * 9 * 128) + 256,
             num_actions=num_actions,
             **asdict(ac_config),
             rngs=rngs,
         )
 
-    def __call__(self, obs, reset, prev_state):
+    def __call__(self, obs, reset, prev_state, codebook, codebook_size):
         B, T, *_ = obs.shape
-        z = self.encoder(obs.reshape(B * T, *_))
+        z, codebook, codebook_size = self.encoder(
+            obs.reshape(B * T, *_), codebook, codebook_size
+        )
+        z = self.embedding(z)
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
@@ -59,12 +68,24 @@ class Agent(nnx.Module):
         state = jnp.concatenate([z, y], axis=-1)
 
         pi, v = self.actor_critic(state)
-        return pi, v, prev_state
+        return pi, v, prev_state, codebook, codebook_size
 
     @nnx.jit
-    def loss(self, obs, reset, prev_state, action, old_pi_log_prob, adv, tgt):
+    def loss(
+        self,
+        obs,
+        reset,
+        prev_state,
+        codebook,
+        codebook_size,
+        action,
+        old_pi_log_prob,
+        adv,
+        tgt,
+    ):
         B, T, *_ = obs.shape
-        z = self.encoder(obs.reshape(B * T, *_))
+        z, _, _ = self.encoder(obs.reshape(B * T, *_), codebook, codebook_size)
+        z = self.embedding(z)
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
