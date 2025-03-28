@@ -140,6 +140,9 @@ def main(cfg: TrainConfig):
         0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon
     ):
         print(f"{step=}")
+
+        # 1. Collect data from environment
+
         rng, rollout_rng = jax.random.split(rng)
 
         (curr_obs, next_done, env_state, next_agent_state), (
@@ -197,6 +200,8 @@ def main(cfg: TrainConfig):
         )
 
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+        # 2. Update policy on environment data
 
         mini_logs = []
 
@@ -256,6 +261,10 @@ def main(cfg: TrainConfig):
 
         agent_state = next_agent_state
         curr_done = next_done
+
+        # 3. Update world model
+
+        # 4. Update policy on imagined data
 
 
 if __name__ == "__main__":
