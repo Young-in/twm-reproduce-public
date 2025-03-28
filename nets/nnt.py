@@ -41,3 +41,12 @@ class NearestNeighborTokenizer:
 
         idx = idx.reshape(-1, self.grid_size, self.grid_size)
         return idx, codebook, codebook_size
+    
+    def decode(self, x, codebook):
+        *_, H, W = x.shape
+        
+        x = jnp.take(codebook, x, axis=0)
+        x = x.transpose(0, 1, 3, 2, 4, 5)
+        x = x.reshape(-1, self.grid_size * self.patch_size, self.grid_size * self.patch_size, x.shape[-1])
+
+        return x

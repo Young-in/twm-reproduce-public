@@ -19,20 +19,19 @@ class Agent(nnx.Module):
         *,
         rngs: nnx.Rngs
     ):
-        self.encoder = NearestNeighborTokenizer(
+        self.tokenizer = NearestNeighborTokenizer(
             codebook_size=4096,
         )
-        self.embedding = nnx.Embed(
-            num_embeddings=4096,
-            features=128,
+        self.encoder = ImpalaCNN(
+            channels=[64, 64, 128],
             rngs=rngs,
         )
         self.norm = nnx.LayerNorm(
-            num_features=9 * 9 * 128,
+            num_features=8 * 8 * 128,
             rngs=rngs,
         )
         self.linear = nnx.Linear(
-            in_features=9 * 9 * 128,
+            in_features=8 * 8 * 128,
             out_features=256,
             kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2)),
             rngs=rngs,
@@ -43,7 +42,7 @@ class Agent(nnx.Module):
             rngs=rngs,
         )
         self.actor_critic = ActorCritic(
-            input_dim=(9 * 9 * 128) + 256,
+            input_dim=(8 * 8 * 128) + 256,
             num_actions=num_actions,
             **asdict(ac_config),
             rngs=rngs,
@@ -51,10 +50,11 @@ class Agent(nnx.Module):
 
     def __call__(self, obs, reset, prev_state, codebook, codebook_size):
         B, T, *_ = obs.shape
-        z, codebook, codebook_size = self.encoder(
+        z, codebook, codebook_size = self.tokenizer(
             obs.reshape(B * T, *_), codebook, codebook_size
         )
-        z = self.embedding(z)
+        obs = self.tokenizer.decode(z, codebook)
+        z = self.encoder(obs)
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
@@ -84,8 +84,11 @@ class Agent(nnx.Module):
         tgt,
     ):
         B, T, *_ = obs.shape
-        z, _, _ = self.encoder(obs.reshape(B * T, *_), codebook, codebook_size)
-        z = self.embedding(z)
+        z, codebook, codebook_size = self.tokenizer(
+            obs.reshape(B * T, *_), codebook, codebook_size
+        )
+        obs = self.tokenizer.decode(z, codebook)
+        z = self.encoder(obs)
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
