@@ -13,6 +13,7 @@ class ActorCriticConfig:
 
 @dataclass
 class WandBConfig:
+    enable: bool = True
     project_name: str = "twm_reproduce"
     exp_name: str = "twm"
     group_name: str = "twm"
@@ -21,8 +22,10 @@ class WandBConfig:
 class TrainConfig:
     seed: int = 0
     total_env_interactions: int = 1_000_000
+    warmup_interactions: int = 200_000
     batch_size: int = 48
     rollout_horizon: int = 96
+    wm_rollout_horizon: int = 20
     num_epochs: int = 4
     learning_rate: float = 0.00045
     max_grad_norm: float = 0.5

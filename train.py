@@ -7,6 +7,7 @@ import wandb
 import jax
 import jax.numpy as jnp
 from flax import nnx
+import flashbax as fbx
 import optax
 
 from craftax import craftax_env
@@ -17,14 +18,73 @@ from configs import TrainConfig
 from utils.gae import calc_adv_tgt
 
 
+def wm_rollout(
+    agent, agent_state, curr_obs, curr_done, world_model, horizon, rollout_rng
+):
+    def one_step(state, rng):
+        obs, done, agent_state = state
+
+        pi, value, agent_state = jax.lax.stop_gradient(
+            agent(obs[:, None, ...], done[:, None, ...], agent_state)
+        )
+        rng, sample_rng = jax.random.split(rng)
+        action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
+
+        action = action.squeeze(axis=1)
+        log_prob = log_prob.squeeze(axis=1)
+        value = value.squeeze(axis=1)
+
+        rng, step_rng = jax.random.split(rng)
+        # TODO: Predict next step with world model
+        next_obs = None
+        done = None
+
+        return (next_obs, done, agent_state), (
+            obs,
+            action,
+            log_prob,
+            value,
+            reward,
+            done,
+            info,
+        )
+
+    (curr_obs, curr_done, agent_state), (
+        obs,
+        action,
+        log_prob,
+        value,
+        reward,
+        done,
+        info,
+    ) = nnx.scan(one_step, out_axes=(nnx.transforms.iteration.Carry, 1))(
+        (curr_obs, curr_done, agent_state), jax.random.split(rollout_rng, horizon)
+    )
+
+    _, last_value, _ = jax.lax.stop_gradient(
+        agent(curr_obs[:, None, ...], curr_done[:, None, ...], agent_state)
+    )
+
+    return (
+        obs,
+        action,
+        log_prob,
+        jnp.concatenate((value, last_value), axis=1),
+        reward,
+        done,
+        info,
+    )
+
+
 @pyrallis.wrap()
 def main(cfg: TrainConfig):
-    wandb.init(
-        project=cfg.wandb_config.project_name,
-        config=asdict(cfg),
-        name=f"{cfg.wandb_config.exp_name}_s{cfg.seed}",
-        group=cfg.wandb_config.group_name,
-    )
+    if cfg.wandb_config.enable:
+        wandb.init(
+            project=cfg.wandb_config.project_name,
+            config=asdict(cfg),
+            name=f"{cfg.wandb_config.exp_name}_s{cfg.seed}",
+            group=cfg.wandb_config.group_name,
+        )
     rng = jax.random.PRNGKey(cfg.seed)
 
     # Create environment
@@ -132,6 +192,27 @@ def main(cfg: TrainConfig):
     )
     train_state = nnx.Optimizer(agent, tx)
 
+    # Create replay buffer
+    cpu = jax.devices("cpu")[0]
+    with jax.default_device(cpu):
+        buffer = fbx.make_trajectory_buffer(
+            add_batch_size=cfg.batch_size,
+            sample_batch_size=cfg.batch_size,
+            sample_sequence_length=cfg.wm_rollout_horizon,
+            period=1,
+            min_length_time_axis=cfg.wm_rollout_horizon,
+            max_size=128_000,
+        )
+
+        buffer_state = buffer.init(
+            {
+                "obs": jnp.zeros((63, 63, 3), dtype=jnp.float32),
+                "action": jnp.zeros((), dtype=jnp.int32),
+                "reward": jnp.zeros((), dtype=jnp.float32),
+                "done": jnp.zeros((), dtype=jnp.bool),
+            }
+        )
+
     tgt_mean = 0
     tgt_std = 0
     debiasing = 0
@@ -163,31 +244,44 @@ def main(cfg: TrainConfig):
             rollout_rng,
         )
 
-        wandb.log(
-            {
-                "rollout_reward": reward.mean(),
-                "rollout_done": done.mean(),
-                "rollout_log_prob": log_prob.mean(),
-                "rollout_value": value.mean(),
-                "target_mean": tgt_mean,
-                "target_std": tgt_std,
-                "debiasing": debiasing,
-            },
-            step=step + cfg.batch_size * cfg.rollout_horizon,
-        )
+        with jax.default_device(cpu):
+            buffer_state = buffer.add(
+                buffer_state,
+                {
+                    "obs": obs,
+                    "action": action,
+                    "reward": reward,
+                    "done": done,
+                },
+            )
+
+        if cfg.wandb_config.enable:
+            wandb.log(
+                {
+                    "rollout_reward": reward.mean(),
+                    "rollout_done": done.mean(),
+                    "rollout_log_prob": log_prob.mean(),
+                    "rollout_value": value.mean(),
+                    "target_mean": tgt_mean,
+                    "target_std": tgt_std,
+                    "debiasing": debiasing,
+                },
+                step=step + cfg.batch_size * cfg.rollout_horizon,
+            )
 
         if info["returned_episode"].any():
             avg_episode_returns = jnp.average(
                 info["returned_episode_returns"], weights=info["returned_episode"]
             )
 
-            wandb.log(
-                {
-                    "rollout_return": avg_episode_returns,
-                    "rollout_ends": info["returned_episode"].sum(),
-                },
-                step=step + cfg.batch_size * cfg.rollout_horizon,
-            )
+            if cfg.wandb_config.enable:
+                wandb.log(
+                    {
+                        "rollout_return": avg_episode_returns,
+                        "rollout_ends": info["returned_episode"].sum(),
+                    },
+                    step=step + cfg.batch_size * cfg.rollout_horizon,
+                )
 
         reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1)
 
@@ -257,14 +351,117 @@ def main(cfg: TrainConfig):
         for k in mini_logs[0].keys():
             logs[k] = jnp.array([l[k] for l in mini_logs]).mean()
 
-        wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
+        if cfg.wandb_config.enable:
+            wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
         agent_state = next_agent_state
         curr_done = next_done
 
         # 3. Update world model
 
+        for _ in range(500):
+            rng, sample_rng = jax.random.split(rng)
+            data = buffer.sample(buffer_state, sample_rng)
+
+            obs = data.experience["obs"]
+            action = data.experience["action"]
+            reward = data.experience["reward"]
+            done = data.experience["done"]
+
+            # TODO: Train world model
+
         # 4. Update policy on imagined data
+
+        if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
+            for _ in range(150):
+                rng, sample_rng = jax.random.split(rng)
+                data = buffer.sample(buffer_state, sample_rng)
+
+                obs = data.experience["obs"]
+                action = data.experience["action"]
+                reward = data.experience["reward"]
+                done = data.experience["done"]
+
+                rng, rollout_rng = jax.random.split(rng)
+                # TODO: Rollout from world model
+                (
+                    obs,
+                    action,
+                    log_prob,
+                    value,
+                    reward,
+                    done,
+                    info,
+                ) = wm_rollout(
+                    agent,
+                    agent_state,
+                    obs,
+                    done,
+                    # world_model,
+                    cfg.wm_rollout_horizon,
+                    rollout_rng,
+                )
+
+                value = value * jnp.maximum(
+                    tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1
+                ) + tgt_mean / jnp.maximum(debiasing, 1e-2)
+
+                adv, tgt = calc_adv_tgt(
+                    reward, done, value, cfg.ac_config.gamma, cfg.ac_config.ld
+                )
+
+                adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+
+                # TODO: Train policy on imagined data
+
+                mini_logs = []
+
+                start_idx = 0
+                end_idx = cfg.batch_size
+
+                # TODO: Not sure moving averages are shared with online learning
+                tgt_mini = tgt[start_idx:end_idx]
+                tgt_mean = (
+                    cfg.ac_config.tgt_discount * tgt_mean
+                    + (1 - cfg.ac_config.tgt_discount) * tgt_mini.mean()
+                )
+                tgt_std = (
+                    cfg.ac_config.tgt_discount * tgt_std
+                    + (1 - cfg.ac_config.tgt_discount) * tgt_mini.std()
+                )
+
+                debiasing = (
+                    cfg.ac_config.tgt_discount * debiasing
+                    + (1 - cfg.ac_config.tgt_discount) * 1
+                )
+
+                tgt_mini = (
+                    tgt_mini - tgt_mean / jnp.maximum(debiasing, 1e-2)
+                ) / jnp.maximum(tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1)
+
+                loss_fn = lambda model: model.loss(
+                    obs[start_idx:end_idx],
+                    reset[start_idx:end_idx],
+                    agent_state[start_idx:end_idx],
+                    action[start_idx:end_idx],
+                    log_prob[start_idx:end_idx],
+                    adv[start_idx:end_idx],
+                    tgt_mini,
+                )
+
+                (loss, metrics), grads = nnx.value_and_grad(loss_fn, has_aux=True)(
+                    train_state.model
+                )
+
+                train_state.update(grads=grads)
+
+                mini_logs.append(
+                    {
+                        "loss": loss,
+                        **metrics,
+                    }
+                )
 
 
 if __name__ == "__main__":
