@@ -99,13 +99,23 @@ def main(cfg: TrainConfig):
 
     @functools.partial(nnx.jit, static_argnames=("horizon",))
     def rollout(
-        agent, agent_state, curr_obs, curr_done, env_state, horizon, rollout_rng
+        agent,
+        agent_state,
+        curr_obs,
+        curr_done,
+        env_state,
+        horizon,
+        rollout_rng,
     ):
         def one_step(state, rng):
             obs, done, env_state, agent_state = state
 
             pi, value, agent_state = jax.lax.stop_gradient(
-                agent(obs[:, None, ...], done[:, None, ...], agent_state)
+                agent(
+                    obs[:, None, ...],
+                    done[:, None, ...],
+                    agent_state,
+                )
             )
             rng, sample_rng = jax.random.split(rng)
             action, log_prob = pi.sample_and_log_prob(seed=sample_rng)
@@ -148,7 +158,11 @@ def main(cfg: TrainConfig):
             jax.random.split(rollout_rng, horizon),
         )
         _, last_value, _ = jax.lax.stop_gradient(
-            agent(curr_obs[:, None, ...], curr_done[:, None, ...], agent_state)
+            agent(
+                curr_obs[:, None, ...],
+                curr_done[:, None, ...],
+                agent_state,
+            )
         )
         return (curr_obs, curr_done, env_state, agent_state), (
             obs,
@@ -176,6 +190,8 @@ def main(cfg: TrainConfig):
     print(f"Reset time: {end_time - start_time:.2f}s")
 
     agent_state = agent.rnn.initialize_carry(cfg.batch_size)
+    codebook = jnp.zeros((4096, 7, 7, 3)) - 1
+    codebook_size = jnp.array(0)
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
     def lr_schedule(count):
