@@ -23,7 +23,14 @@ from utils.gae import calc_adv_tgt
 
 
 def wm_rollout(
-    agent, agent_state, curr_obs, curr_done, world_model, horizon, rollout_rng
+    agent,
+    agent_state,
+    curr_obs,
+    curr_done,
+    world_model,
+    world_model_params,
+    horizon,
+    rollout_rng,
 ):
     def one_step(state, rng):
         obs, done, agent_state = state
@@ -38,8 +45,46 @@ def wm_rollout(
         log_prob = log_prob.squeeze(axis=1)
         value = value.squeeze(axis=1)
 
+        @functools.partial(jax.jit, static_argnums=(1, 2))
+        def imagine_state(
+            key, world_model, config, params, state_action_ids, past_key_values
+        ):
+            input_ids = state_action_ids[:, -config.tokens_per_block :]
+            total_seq_len = state_action_ids.shape[1]
+            position_ids = jnp.broadcast_to(
+                jnp.arange(total_seq_len - config.tokens_per_block, total_seq_len)[
+                    None, :
+                ],
+                input_ids.shape,
+            )
+            outputs = world_model(
+                input_ids,
+                position_ids=position_ids,
+                params=params,
+                past_key_values=past_key_values,
+            )
+
+            tokens_per_state = config.tokens_per_block - 1
+            next_state_logits = outputs.observation_logits[:, -tokens_per_state:]
+            next_state_ids = jax.random.categorical(key, next_state_logits)
+
+            return next_state_ids, outputs.past_key_values
+
+        # TODO: Encode obs + action into state_action_ids
+        state_action_ids = None
+
         rng, step_rng = jax.random.split(rng)
-        # TODO: Predict next step with world model
+        # TODO get config from world_model
+        next_state_ids, past_key_values = imagine_state(
+            step_rng,
+            world_model,
+            config,
+            world_model_params,
+            state_action_ids,
+            past_key_values,
+        )
+
+        # TODO: Decode obs
         next_obs = None
         done = None
 
@@ -444,6 +489,9 @@ def main(cfg: TrainConfig):
 
         if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
             for _ in range(cfg.num_updates):
+                # TODO: create new agent_state using burn-in frames
+                imagination_agent_state = None
+
                 rng, sample_rng = jax.random.split(rng)
                 data = buffer.sample(buffer_state, sample_rng)
 
@@ -453,7 +501,6 @@ def main(cfg: TrainConfig):
                 done = data.experience["done"]
 
                 rng, rollout_rng = jax.random.split(rng)
-                # TODO: Rollout from world model
                 (
                     obs,
                     action,
@@ -464,10 +511,10 @@ def main(cfg: TrainConfig):
                     info,
                 ) = wm_rollout(
                     agent,
-                    agent_state,
+                    imagination_agent_state,
                     obs,
                     done,
-                    # world_model,
+                    world_model,
                     cfg.wm_rollout_horizon,
                     rollout_rng,
                 )
@@ -510,7 +557,7 @@ def main(cfg: TrainConfig):
                 loss_fn = lambda model: model.loss(
                     obs[start_idx:end_idx],
                     reset[start_idx:end_idx],
-                    agent_state[start_idx:end_idx],
+                    imagination_agent_state[start_idx:end_idx],
                     action[start_idx:end_idx],
                     log_prob[start_idx:end_idx],
                     adv[start_idx:end_idx],
