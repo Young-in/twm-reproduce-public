@@ -7,14 +7,18 @@ import wandb
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from flax.training.train_state import TrainState
 import flashbax as fbx
 import optax
 
 from craftax import craftax_env
 
+from configs import TrainConfig
 from env.wrapper import AutoResetEnvWrapper, BatchEnvWrapper, LogWrapper
 from nets.agent import Agent
-from configs import TrainConfig
+from nets.configuration import GPT2WorldModelConfig
+from nets.configuration import GPT2WorldModelConfig
+from nets.world_model import FlaxGPT2WorldModel
 from utils.gae import calc_adv_tgt
 
 
@@ -199,7 +203,36 @@ def main(cfg: TrainConfig):
         optax.clip_by_global_norm(cfg.max_grad_norm),
         optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
     )
-    train_state = nnx.Optimizer(agent, tx)
+    policy_train_state = nnx.Optimizer(agent, tx)
+
+    # Create world model
+    # TODO: Create GPT2WorldModelConfig from cfg.wm_config
+    config = GPT2WorldModelConfig(
+        num_actions=17,
+        tokens_per_block=82,
+        max_blocks=20,
+        vocab_size=4096,
+        n_positions=82 * 20,
+        n_embd=128,
+        n_layer=3,
+        n_head=8,
+        n_inner=None,  # defaults to 4 * n_embd
+        resid_pdrop=0.1,
+        embd_pdrop=0.1,
+        attn_pdrop=0.1,
+    )
+    input_shape = (cfg.batch_size, config.max_tokens)
+    world_model = FlaxGPT2WorldModel(config, input_shape, cfg.seed)
+    rng, init_weights_rng = jax.random.split(rng)
+    world_model_params = world_model.init_weights(init_weights_rng, input_shape)
+    # TODO add lr=0.001 to cfg.wm_config
+    world_model_tx = optax.chain(
+        optax.clip_by_global_norm(cfg.max_grad_norm),
+        optax.adam(learning_rate=0.001, eps=1e-5),
+    )
+    world_model_train_state = TrainState.create(
+        apply_fn=world_model.apply, params=world_model_params, tx=world_model_tx
+    )
 
     # Create replay buffer
     cpu = jax.devices("cpu")[0]
@@ -342,10 +375,10 @@ def main(cfg: TrainConfig):
                 )
 
                 (loss, metrics), grads = nnx.value_and_grad(loss_fn, has_aux=True)(
-                    train_state.model
+                    policy_train_state.model
                 )
 
-                train_state.update(grads=grads)
+                policy_train_state.update(grads=grads)
 
                 mini_logs.append(
                     {
@@ -377,6 +410,20 @@ def main(cfg: TrainConfig):
             done = data.experience["done"]
 
             # TODO: Train world model
+
+            # TODO: Convert obs + action into state_action_ids
+            @functools.partial(jax.jit, static_argnums=(0,))
+            def loss_fn(
+                world_model,
+                params,
+                dropout_key,
+                state_action_ids,
+                rewards,
+                terminations,
+            ):
+                return world_model.loss(
+                    params, dropout_key, state_action_ids, rewards, terminations
+                )
 
         # 4. Update policy on imagined data
 
@@ -458,10 +505,10 @@ def main(cfg: TrainConfig):
                 )
 
                 (loss, metrics), grads = nnx.value_and_grad(loss_fn, has_aux=True)(
-                    train_state.model
+                    policy_train_state.model
                 )
 
-                train_state.update(grads=grads)
+                policy_train_state.update(grads=grads)
 
                 mini_logs.append(
                     {
