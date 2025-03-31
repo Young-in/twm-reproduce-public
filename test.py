@@ -35,10 +35,8 @@ def test_nearest_neighbor_tokenizer():
     env_rng = jax.random.PRNGKey(0)
     curr_obs, env_state = env.reset(env_rng, env_params)
     y = nnt(curr_obs)
-    import ipdb
-    ipdb.set_trace()
 
-    assert y.shape == (16, 9, 9)
+    assert y.shape == (48, 9, 9)
 
 def main():
     # test_impala_cnn()

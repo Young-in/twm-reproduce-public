@@ -4,9 +4,8 @@ import jax.numpy as jnp
 
 class PatchMLP(nnx.Module):
     def __init__(
-        self, grid_size: int, patch_size: int, hidden_dim: int, rngs: nnx.Rngs
+        self, patch_size: int, hidden_dim: int, rngs: nnx.Rngs
     ):
-        self.grid_size = grid_size
         self.patch_size = patch_size
         self.hidden_dim = hidden_dim
 
