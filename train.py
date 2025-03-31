@@ -30,7 +30,11 @@ def wm_rollout(
     curr_done,
     world_model,
     world_model_params,
+    tokenizer,
+    codebook,
     horizon,
+    max_tokens,
+    tokens_per_block,
     rollout_rng,
 ):
     def one_step(state, rng):
@@ -46,15 +50,13 @@ def wm_rollout(
         log_prob = log_prob.squeeze(axis=1)
         value = value.squeeze(axis=1)
 
+        # TODO: static_argnums for `params`?
         @functools.partial(jax.jit, static_argnums=(1, 2))
         def imagine_state(key, world_model, params, state_action_ids, past_key_values):
-            # TODO get config from world_model
-            input_ids = state_action_ids[:, -config.tokens_per_block :]
+            input_ids = state_action_ids[:, -tokens_per_block:]
             total_seq_len = state_action_ids.shape[1]
             position_ids = jnp.broadcast_to(
-                jnp.arange(total_seq_len - config.tokens_per_block, total_seq_len)[
-                    None, :
-                ],
+                jnp.arange(total_seq_len - tokens_per_block, total_seq_len)[None, :],
                 input_ids.shape,
             )
             outputs = world_model(
@@ -64,14 +66,17 @@ def wm_rollout(
                 past_key_values=past_key_values,
             )
 
-            tokens_per_state = config.tokens_per_block - 1
+            tokens_per_state = tokens_per_block - 1
             next_state_logits = outputs.observation_logits[:, -tokens_per_state:]
             next_state_ids = jax.random.categorical(key, next_state_logits)
 
             return next_state_ids, outputs.past_key_values
 
         # TODO: Encode obs + action into state_action_ids
-        state_action_ids = None
+        state_ids = tokenizer(obs, codebook)
+        state_ids = state_ids.reshape(state_ids.shape[0], -1)
+        
+        state_action_ids = jnp.concatenate((state_ids, action[:, None]), axis=-1)
 
         rng, step_rng = jax.random.split(rng)
         next_state_ids, past_key_values = imagine_state(
@@ -83,7 +88,7 @@ def wm_rollout(
         )
 
         # TODO: Decode obs
-        next_obs = None
+        next_obs = tokenizer.decode(next_state_ids, codebook)
         done = None
 
         return (next_obs, done, agent_state, past_key_values), (
@@ -96,13 +101,13 @@ def wm_rollout(
             info,
         )
 
-    @functools.partial(jax.jit, static_argnums=(0, 1, 2))
+    @functools.partial(jax.jit, static_argnums=(0, 1))
     def init_cache(world_model, batch_size):
-        # TODO get config from world_model
-        return world_model.init_cache(batch_size, config.max_tokens)
+        return world_model.init_cache(batch_size, max_tokens)
 
     batch_size = curr_obs.shape[0]
     past_key_values = init_cache(world_model, batch_size)
+    # TODO: Resolve "Non-hashable static arguments are not supported". Details in Notion page
     (curr_obs, curr_done, agent_state, _), (
         obs,
         action,
@@ -457,11 +462,10 @@ def main(cfg: TrainConfig):
         for _ in range(cfg.token_config.num_updates):
             rng, sample_rng = jax.random.split(rng)
             data = buffer.sample(buffer_state, sample_rng)
-            
+
             obs = data.experience["obs"]
 
             codebook, codebook_size = tokenizer.update(obs, codebook, codebook_size)
-        
 
         for _ in range(cfg.wm_config.num_updates):
             rng, sample_rng = jax.random.split(rng)
@@ -510,9 +514,6 @@ def main(cfg: TrainConfig):
 
         if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
             for _ in range(cfg.num_updates):
-                # TODO: create new agent_state using burn-in frames
-                imagination_agent_state = None
-
                 rng, sample_rng = jax.random.split(rng)
                 data = buffer.sample(buffer_state, sample_rng)
 
@@ -520,6 +521,12 @@ def main(cfg: TrainConfig):
                 action = data.experience["action"]
                 reward = data.experience["reward"]
                 done = data.experience["done"]
+
+                _, _, imagination_agent_state = agent(
+                    obs[:, : cfg.burn_in_horizon],
+                    done[:, : cfg.burn_in_horizon],
+                    agent.rnn.initialize_carry(cfg.batch_size),
+                )
 
                 rng, rollout_rng = jax.random.split(rng)
                 (
@@ -533,10 +540,15 @@ def main(cfg: TrainConfig):
                 ) = wm_rollout(
                     agent,
                     imagination_agent_state,
-                    obs,
-                    done,
+                    obs[:, cfg.burn_in_horizon],
+                    done[:, cfg.burn_in_horizon],
                     world_model,
+                    world_model_train_state.params,
+                    tokenizer,
+                    codebook,
                     cfg.wm_rollout_horizon,
+                    config.max_tokens,
+                    config.tokens_per_block,
                     rollout_rng,
                 )
 

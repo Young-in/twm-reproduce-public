@@ -44,6 +44,8 @@ class TrainConfig:
     learning_rate: float = 0.00045
     max_grad_norm: float = 0.5
 
+    burn_in_horizon: int = 5
+
     num_minibatches: int = 8
     num_updates: int = 150
 
