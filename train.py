@@ -33,7 +33,7 @@ def wm_rollout(
     rollout_rng,
 ):
     def one_step(state, rng):
-        obs, done, agent_state = state
+        obs, done, agent_state, past_key_values = state
 
         pi, value, agent_state = jax.lax.stop_gradient(
             agent(obs[:, None, ...], done[:, None, ...], agent_state)
@@ -46,9 +46,8 @@ def wm_rollout(
         value = value.squeeze(axis=1)
 
         @functools.partial(jax.jit, static_argnums=(1, 2))
-        def imagine_state(
-            key, world_model, config, params, state_action_ids, past_key_values
-        ):
+        def imagine_state(key, world_model, params, state_action_ids, past_key_values):
+            # TODO get config from world_model
             input_ids = state_action_ids[:, -config.tokens_per_block :]
             total_seq_len = state_action_ids.shape[1]
             position_ids = jnp.broadcast_to(
@@ -74,11 +73,9 @@ def wm_rollout(
         state_action_ids = None
 
         rng, step_rng = jax.random.split(rng)
-        # TODO get config from world_model
         next_state_ids, past_key_values = imagine_state(
             step_rng,
             world_model,
-            config,
             world_model_params,
             state_action_ids,
             past_key_values,
@@ -88,7 +85,7 @@ def wm_rollout(
         next_obs = None
         done = None
 
-        return (next_obs, done, agent_state), (
+        return (next_obs, done, agent_state, past_key_values), (
             obs,
             action,
             log_prob,
@@ -98,7 +95,14 @@ def wm_rollout(
             info,
         )
 
-    (curr_obs, curr_done, agent_state), (
+    @functools.partial(jax.jit, static_argnums=(0, 1, 2))
+    def init_cache(world_model, batch_size):
+        # TODO get config from world_model
+        return world_model.init_cache(batch_size, config.max_tokens)
+
+    batch_size = curr_obs.shape[0]
+    past_key_values = init_cache(world_model, batch_size)
+    (curr_obs, curr_done, agent_state, _), (
         obs,
         action,
         log_prob,
@@ -107,7 +111,8 @@ def wm_rollout(
         done,
         info,
     ) = nnx.scan(one_step, out_axes=(nnx.transforms.iteration.Carry, 1))(
-        (curr_obs, curr_done, agent_state), jax.random.split(rollout_rng, horizon)
+        (curr_obs, curr_done, agent_state, past_key_values),
+        jax.random.split(rollout_rng, horizon),
     )
 
     _, last_value, _ = jax.lax.stop_gradient(
