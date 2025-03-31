@@ -194,17 +194,10 @@ def main(cfg: TrainConfig):
     codebook_size = jnp.array(0)
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
-    def lr_schedule(count):
-        return cfg.learning_rate * (
-            1.0
-            - (count // (cfg.num_minibatches * cfg.num_epochs))
-            / (cfg.total_env_interactions // (cfg.batch_size * cfg.rollout_horizon))
-        )
-
     # Create optimizer
     tx = optax.chain(
         optax.clip_by_global_norm(cfg.max_grad_norm),
-        optax.adam(learning_rate=lr_schedule, eps=1e-5),
+        optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
     )
     train_state = nnx.Optimizer(agent, tx)
 
