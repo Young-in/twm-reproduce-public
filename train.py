@@ -412,6 +412,8 @@ def main(cfg: TrainConfig):
             # TODO: Train world model
 
             # TODO: Convert obs + action into state_action_ids
+            state_action_ids = None
+
             @functools.partial(jax.jit, static_argnums=(0,))
             def loss_fn(
                 world_model,
@@ -424,6 +426,19 @@ def main(cfg: TrainConfig):
                 return world_model.loss(
                     params, dropout_key, state_action_ids, rewards, terminations
                 )
+
+            rng, dropout_rng = jax.random.split(rng)
+            grads = jax.grad(loss_fn)(
+                world_model,
+                world_model_train_state.params,
+                dropout_rng,
+                state_action_ids,
+                reward,
+                done,
+            )
+            world_model_train_state = world_model_train_state.apply_gradients(
+                grads=grads
+            )
 
         # 4. Update policy on imagined data
 
@@ -466,8 +481,6 @@ def main(cfg: TrainConfig):
                 )
 
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-
-                # TODO: Train policy on imagined data
 
                 mini_logs = []
 
