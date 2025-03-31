@@ -285,12 +285,11 @@ def main(cfg: TrainConfig):
                 step=step + cfg.batch_size * cfg.rollout_horizon,
             )
 
-        if info["returned_episode"].any():
-            avg_episode_returns = jnp.average(
-                info["returned_episode_returns"], weights=info["returned_episode"]
-            )
+            if info["returned_episode"].any():
+                avg_episode_returns = jnp.average(
+                    info["returned_episode_returns"], weights=info["returned_episode"]
+                )
 
-            if cfg.wandb_config.enable:
                 wandb.log(
                     {
                         "rollout_return": avg_episode_returns,
@@ -427,7 +426,6 @@ def main(cfg: TrainConfig):
                 )
 
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-
 
                 # TODO: Train policy on imagined data
 
