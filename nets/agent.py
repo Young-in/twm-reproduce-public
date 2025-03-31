@@ -6,6 +6,8 @@ import jax.numpy as jnp
 from nets.impala_cnn import ImpalaCNN
 from nets.actor_critic import ActorCritic
 from nets.rnn import RNN
+from nets.nnt import NearestNeighborTokenizer
+from nets.patch_mlp import PatchMLP
 from configs import ActorCriticConfig
 
 
@@ -62,7 +64,16 @@ class Agent(nnx.Module):
         return pi, v, prev_state
 
     @nnx.jit
-    def loss(self, obs, reset, prev_state, action, old_pi_log_prob, adv, tgt):
+    def loss(
+        self,
+        obs,
+        reset,
+        prev_state,
+        action,
+        old_pi_log_prob,
+        adv,
+        tgt,
+    ):
         B, T, *_ = obs.shape
         z = self.encoder(obs.reshape(B * T, *_))
         z = nnx.relu(z)
