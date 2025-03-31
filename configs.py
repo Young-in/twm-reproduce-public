@@ -18,6 +18,11 @@ class WorldModelConfig:
     num_minibatches: int = 3
 
 @dataclass
+class TokenizerConfig:
+    codebook_size: int = 4096
+    num_updates: int = 25
+
+@dataclass
 class WandBConfig:
     enable: bool = True
     project_name: str = "twm_reproduce"
@@ -45,3 +50,4 @@ class TrainConfig:
     wandb_config: WandBConfig = WandBConfig()
     ac_config: ActorCriticConfig = ActorCriticConfig()
     wm_config: WorldModelConfig = WorldModelConfig()
+    token_config: TokenizerConfig = TokenizerConfig()

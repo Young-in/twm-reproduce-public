@@ -16,6 +16,7 @@ from craftax import craftax_env
 from configs import TrainConfig
 from env.wrapper import AutoResetEnvWrapper, BatchEnvWrapper, LogWrapper
 from nets.agent import Agent
+from nets.nnt import NearestNeighborTokenizer
 from nets.configuration import GPT2WorldModelConfig
 from nets.configuration import GPT2WorldModelConfig
 from nets.world_model import FlaxGPT2WorldModel
@@ -244,9 +245,11 @@ def main(cfg: TrainConfig):
     print(f"Reset time: {end_time - start_time:.2f}s")
 
     agent_state = agent.rnn.initialize_carry(cfg.batch_size)
-    codebook = jnp.zeros((4096, 7, 7, 3)) - 1
+    codebook = jnp.zeros((cfg.token_config.codebook_size, 7, 7, 3)) - 1
     codebook_size = jnp.array(0)
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
+
+    tokenizer = NearestNeighborTokenizer(cfg.token_config.codebook_size)
 
     # Create optimizer
     tx = optax.chain(
@@ -450,6 +453,16 @@ def main(cfg: TrainConfig):
 
         # 3. Update world model
 
+        # Update tokenizer
+        for _ in range(cfg.token_config.num_updates):
+            rng, sample_rng = jax.random.split(rng)
+            data = buffer.sample(buffer_state, sample_rng)
+            
+            obs = data.experience["obs"]
+
+            codebook, codebook_size = tokenizer.update(obs, codebook, codebook_size)
+        
+
         for _ in range(cfg.wm_config.num_updates):
             rng, sample_rng = jax.random.split(rng)
             data = buffer.sample(buffer_state, sample_rng)
@@ -460,6 +473,36 @@ def main(cfg: TrainConfig):
             done = data.experience["done"]
 
             # TODO: Train world model
+            token = tokenizer(obs, codebook)
+
+            # TODO: Convert obs + action into state_action_ids
+            state_action_ids = None
+
+            @functools.partial(jax.jit, static_argnums=(0,))
+            def loss_fn(
+                world_model,
+                params,
+                dropout_key,
+                state_action_ids,
+                rewards,
+                terminations,
+            ):
+                return world_model.loss(
+                    params, dropout_key, state_action_ids, rewards, terminations
+                )
+
+            rng, dropout_rng = jax.random.split(rng)
+            grads = jax.grad(loss_fn)(
+                world_model,
+                world_model_train_state.params,
+                dropout_rng,
+                state_action_ids,
+                reward,
+                done,
+            )
+            world_model_train_state = world_model_train_state.apply_gradients(
+                grads=grads
+            )
 
             # TODO: Convert obs + action into state_action_ids
             state_action_ids = None
