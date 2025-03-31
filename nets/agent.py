@@ -19,9 +19,6 @@ class Agent(nnx.Module):
         *,
         rngs: nnx.Rngs
     ):
-        self.tokenizer = NearestNeighborTokenizer(
-            codebook_size=4096,
-        )
         self.encoder = ImpalaCNN(
             channels=[64, 64, 128],
             rngs=rngs,
@@ -48,13 +45,9 @@ class Agent(nnx.Module):
             rngs=rngs,
         )
 
-    def __call__(self, obs, reset, prev_state, codebook, codebook_size):
+    def __call__(self, obs, reset, prev_state):
         B, T, *_ = obs.shape
-        z, codebook, codebook_size = self.tokenizer(
-            obs.reshape(B * T, *_), codebook, codebook_size
-        )
-        obs = self.tokenizer.decode(z, codebook)
-        z = self.encoder(obs)
+        z = self.encoder(obs.reshape(B * T, *_))
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 
@@ -68,7 +61,7 @@ class Agent(nnx.Module):
         state = jnp.concatenate([z, y], axis=-1)
 
         pi, v = self.actor_critic(state)
-        return pi, v, prev_state, codebook, codebook_size
+        return pi, v, prev_state
 
     @nnx.jit
     def loss(
@@ -76,19 +69,13 @@ class Agent(nnx.Module):
         obs,
         reset,
         prev_state,
-        codebook,
-        codebook_size,
         action,
         old_pi_log_prob,
         adv,
         tgt,
     ):
         B, T, *_ = obs.shape
-        z, codebook, codebook_size = self.tokenizer(
-            obs.reshape(B * T, *_), codebook, codebook_size
-        )
-        obs = self.tokenizer.decode(z, codebook)
-        z = self.encoder(obs)
+        z = self.encoder(obs.reshape(B * T, *_))
         z = nnx.relu(z)
         z = z.reshape((B, T, -1))
 

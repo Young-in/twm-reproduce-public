@@ -41,8 +41,6 @@ def main(cfg: TrainConfig):
     def rollout(
         agent,
         agent_state,
-        codebook,
-        codebook_size,
         curr_obs,
         curr_done,
         env_state,
@@ -50,15 +48,13 @@ def main(cfg: TrainConfig):
         rollout_rng,
     ):
         def one_step(state, rng):
-            obs, done, env_state, agent_state, codebook, codebook_size = state
+            obs, done, env_state, agent_state = state
 
-            pi, value, agent_state, codebook, codebook_size = jax.lax.stop_gradient(
+            pi, value, agent_state = jax.lax.stop_gradient(
                 agent(
                     obs[:, None, ...],
                     done[:, None, ...],
                     agent_state,
-                    codebook,
-                    codebook_size,
                 )
             )
             rng, sample_rng = jax.random.split(rng)
@@ -72,7 +68,7 @@ def main(cfg: TrainConfig):
             next_obs, env_state, reward, done, info = env.step(
                 step_rng, env_state, action, env_params
             )
-            return (next_obs, done, env_state, agent_state, codebook, codebook_size), (
+            return (next_obs, done, env_state, agent_state), (
                 obs,
                 action,
                 log_prob,
@@ -82,7 +78,7 @@ def main(cfg: TrainConfig):
                 info,
             )
 
-        (curr_obs, curr_done, env_state, agent_state, codebook, codebook_size), (
+        (curr_obs, curr_done, env_state, agent_state), (
             obs,
             action,
             log_prob,
@@ -98,21 +94,17 @@ def main(cfg: TrainConfig):
                 curr_done,
                 env_state,
                 agent_state,
-                codebook,
-                codebook_size,
             ),
             jax.random.split(rollout_rng, horizon),
         )
-        _, last_value, _, codebook, codebook_size = jax.lax.stop_gradient(
+        _, last_value, _ = jax.lax.stop_gradient(
             agent(
                 curr_obs[:, None, ...],
                 curr_done[:, None, ...],
                 agent_state,
-                codebook,
-                codebook_size,
             )
         )
-        return (curr_obs, curr_done, env_state, agent_state, codebook, codebook_size), (
+        return (curr_obs, curr_done, env_state, agent_state), (
             obs,
             action,
             log_prob,
@@ -166,7 +158,7 @@ def main(cfg: TrainConfig):
         print(f"{step=}")
         rng, rollout_rng = jax.random.split(rng)
 
-        (curr_obs, next_done, env_state, next_agent_state, codebook, codebook_size), (
+        (curr_obs, next_done, env_state, next_agent_state), (
             obs,
             action,
             log_prob,
@@ -177,8 +169,6 @@ def main(cfg: TrainConfig):
         ) = rollout(
             agent,
             agent_state,
-            codebook,
-            codebook_size,
             curr_obs,
             curr_done,
             env_state,
@@ -254,8 +244,6 @@ def main(cfg: TrainConfig):
                     obs[start_idx:end_idx],
                     reset[start_idx:end_idx],
                     agent_state[start_idx:end_idx],
-                    codebook,
-                    codebook_size,
                     action[start_idx:end_idx],
                     log_prob[start_idx:end_idx],
                     adv[start_idx:end_idx],
