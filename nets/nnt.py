@@ -42,11 +42,18 @@ class NearestNeighborTokenizer:
 
     @functools.partial(nnx.jit, static_argnums=(0,))
     def __call__(self, x, codebook):
+        *_, H, W, C = x.shape
+
+        x = x.reshape(
+            -1, self.grid_size, self.patch_size, self.grid_size, self.patch_size, C
+        )
+        x = x.transpose(0, 1, 3, 2, 4, 5)
+        x = x.reshape(-1, self.patch_size, self.patch_size, C)
         diff = x[:, None] - codebook[None]
         diff = jnp.square(diff).sum(axis=(-3, -2, -1))
         idx = jnp.argmin(diff, axis=-1)
 
-        idx = idx.reshape(-1, self.grid_size, self.grid_size)
+        idx = idx.reshape(*_, self.grid_size, self.grid_size)
 
         return idx
 

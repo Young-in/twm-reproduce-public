@@ -284,7 +284,7 @@ def main(cfg: TrainConfig):
         optax.adam(learning_rate=0.001, eps=1e-5),
     )
     world_model_train_state = TrainState.create(
-        apply_fn=world_model.apply, params=world_model_params, tx=world_model_tx
+        apply_fn=world_model.module.apply, params=world_model_params, tx=world_model_tx
     )
 
     # Create replay buffer
@@ -293,9 +293,9 @@ def main(cfg: TrainConfig):
         buffer = fbx.make_trajectory_buffer(
             add_batch_size=cfg.batch_size,
             sample_batch_size=cfg.batch_size,
-            sample_sequence_length=cfg.wm_rollout_horizon,
+            sample_sequence_length=cfg.wm_rollout_horizon + 1,
             period=1,
-            min_length_time_axis=cfg.wm_rollout_horizon,
+            min_length_time_axis=cfg.wm_rollout_horizon + 1,
             max_size=cfg.replay_buffer_size,
         )
 
@@ -472,40 +472,12 @@ def main(cfg: TrainConfig):
             reward = data.experience["reward"]
             done = data.experience["done"]
 
-            # TODO: Train world model
-            token = tokenizer(obs, codebook)
+            B, T, *_ = obs.shape
+            state_ids = tokenizer(obs, codebook)
+            state_ids = state_ids.reshape(B, T, -1)
 
-            # TODO: Convert obs + action into state_action_ids
-            state_action_ids = None
-
-            @functools.partial(jax.jit, static_argnums=(0,))
-            def loss_fn(
-                world_model,
-                params,
-                dropout_key,
-                state_action_ids,
-                rewards,
-                terminations,
-            ):
-                return world_model.loss(
-                    params, dropout_key, state_action_ids, rewards, terminations
-                )
-
-            rng, dropout_rng = jax.random.split(rng)
-            grads = jax.grad(loss_fn)(
-                world_model,
-                world_model_train_state.params,
-                dropout_rng,
-                state_action_ids,
-                reward,
-                done,
-            )
-            world_model_train_state = world_model_train_state.apply_gradients(
-                grads=grads
-            )
-
-            # TODO: Convert obs + action into state_action_ids
-            state_action_ids = None
+            state_action_ids = jnp.concatenate((state_ids, action[:, :, None]), axis=-1)
+            state_action_ids = state_action_ids.reshape(B, -1)
 
             @functools.partial(jax.jit, static_argnums=(0,))
             def loss_fn(
@@ -521,13 +493,14 @@ def main(cfg: TrainConfig):
                 )
 
             rng, dropout_rng = jax.random.split(rng)
+            # TODO: Modify grad of loss_fn to accept `world_model`
             grads = jax.grad(loss_fn)(
                 world_model,
                 world_model_train_state.params,
                 dropout_rng,
                 state_action_ids,
-                reward,
-                done,
+                jnp.where(reward[:, :-1] > 0.5, 1, 0).astype(jnp.int32),
+                done[:, :-1].astype(jnp.int32),
             )
             world_model_train_state = world_model_train_state.apply_gradients(
                 grads=grads
