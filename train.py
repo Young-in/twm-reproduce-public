@@ -201,7 +201,7 @@ def main(cfg: TrainConfig):
             sample_sequence_length=cfg.wm_rollout_horizon,
             period=1,
             min_length_time_axis=cfg.wm_rollout_horizon,
-            max_size=128_000,
+            max_size=cfg.replay_buffer_size,
         )
 
         buffer_state = buffer.init(
@@ -359,7 +359,7 @@ def main(cfg: TrainConfig):
 
         # 3. Update world model
 
-        for _ in range(500):
+        for _ in range(cfg.wm_config.num_updates):
             rng, sample_rng = jax.random.split(rng)
             data = buffer.sample(buffer_state, sample_rng)
 
@@ -373,7 +373,7 @@ def main(cfg: TrainConfig):
         # 4. Update policy on imagined data
 
         if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
-            for _ in range(150):
+            for _ in range(cfg.num_updates):
                 rng, sample_rng = jax.random.split(rng)
                 data = buffer.sample(buffer_state, sample_rng)
 
