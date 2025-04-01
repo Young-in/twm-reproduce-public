@@ -8,14 +8,14 @@ from nets.actor_critic import ActorCritic
 from nets.rnn import RNN
 from nets.nnt import NearestNeighborTokenizer
 from nets.patch_mlp import PatchMLP
-from configs import ActorCriticConfig
+from configs import ActorCriticParams
 
 
 class Agent(nnx.Module):
     def __init__(
         self,
         num_actions: int,
-        ac_config: ActorCriticConfig = ActorCriticConfig(),
+        ac_params: ActorCriticParams = ActorCriticParams(),
         *,
         rngs: nnx.Rngs
     ):
@@ -41,7 +41,7 @@ class Agent(nnx.Module):
         self.actor_critic = ActorCritic(
             input_dim=(8 * 8 * 128) + 256,
             num_actions=num_actions,
-            **asdict(ac_config),
+            **asdict(ac_params),
             rngs=rngs,
         )
 

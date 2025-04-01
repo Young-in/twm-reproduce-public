@@ -103,17 +103,12 @@ class ActorCritic(nnx.Module):
         num_actions: int,
         *,
         eps: float = 0.2,
-        gamma: float = 0.925,
-        ld: float = 0.625,
-        tgt_discount: float = 0.95,
         td_loss_coef: float = 2.0,
         ent_loss_coef: float = 0.01,
         rngs: nnx.Rngs
     ):
         intermediate_dim = 2048
         self.eps = eps
-        self.gamma = gamma
-        self.ld = ld
         self.td_loss_coef = td_loss_coef
         self.ent_loss_coef = ent_loss_coef
 

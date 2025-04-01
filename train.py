@@ -75,7 +75,7 @@ def wm_rollout(
         # TODO: Encode obs + action into state_action_ids
         state_ids = tokenizer(obs, codebook)
         state_ids = state_ids.reshape(state_ids.shape[0], -1)
-        
+
         state_action_ids = jnp.concatenate((state_ids, action[:, None]), axis=-1)
 
         rng, step_rng = jax.random.split(rng)
@@ -234,9 +234,11 @@ def main(cfg: TrainConfig):
             info,
         )
 
+    num_actions = env.action_space(env_params).n
+
     agent = Agent(
-        num_actions=env.action_space(env_params).n,
-        ac_config=cfg.ac_config,
+        num_actions=num_actions,
+        ac_params=cfg.ac_config.params,
         rngs=nnx.Rngs(cfg.seed),
     )
 
@@ -250,43 +252,32 @@ def main(cfg: TrainConfig):
     print(f"Reset time: {end_time - start_time:.2f}s")
 
     agent_state = agent.rnn.initialize_carry(cfg.batch_size)
-    codebook = jnp.zeros((cfg.token_config.codebook_size, 7, 7, 3)) - 1
+    codebook = jnp.zeros((cfg.token_config.params.codebook_size, 7, 7, 3)) - 1
     codebook_size = jnp.array(0)
     curr_done = jnp.ones((cfg.batch_size,), dtype=jnp.bool)
 
-    tokenizer = NearestNeighborTokenizer(cfg.token_config.codebook_size)
+    tokenizer = NearestNeighborTokenizer(cfg.token_config.params.codebook_size)
 
     # Create optimizer
     tx = optax.chain(
         optax.clip_by_global_norm(cfg.max_grad_norm),
-        optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+        optax.adam(learning_rate=cfg.ac_config.learning_rate, eps=1e-5),
     )
     policy_train_state = nnx.Optimizer(agent, tx)
 
     # Create world model
-    # TODO: Create GPT2WorldModelConfig from cfg.wm_config
     config = GPT2WorldModelConfig(
-        num_actions=17,
-        tokens_per_block=82,
-        max_blocks=20,
-        vocab_size=4096,
-        n_positions=82 * 20,
-        n_embd=128,
-        n_layer=3,
-        n_head=8,
-        n_inner=None,  # defaults to 4 * n_embd
-        resid_pdrop=0.1,
-        embd_pdrop=0.1,
-        attn_pdrop=0.1,
+        num_actions=num_actions,
+        **asdict(cfg.wm_config.params),
     )
     input_shape = (cfg.batch_size, config.max_tokens)
     world_model = FlaxGPT2WorldModel(config, input_shape, cfg.seed)
     rng, init_weights_rng = jax.random.split(rng)
     world_model_params = world_model.init_weights(init_weights_rng, input_shape)
-    # TODO add lr=0.001 to cfg.wm_config
+
     world_model_tx = optax.chain(
         optax.clip_by_global_norm(cfg.max_grad_norm),
-        optax.adam(learning_rate=0.001, eps=1e-5),
+        optax.adam(cfg.wm_config.learning_rate, eps=1e-5),
     )
     world_model_train_state = TrainState.create(
         apply_fn=world_model.module.apply, params=world_model_params, tx=world_model_tx
@@ -400,8 +391,8 @@ def main(cfg: TrainConfig):
 
         for epoch in range(cfg.num_epochs):
             for i in range(cfg.num_minibatches):
-                start_idx = i * (cfg.batch_size // cfg.num_minibatches)
-                end_idx = (i + 1) * (cfg.batch_size // cfg.num_minibatches)
+                start_idx = i * (cfg.batch_size // cfg.ac_config.num_minibatches)
+                end_idx = (i + 1) * (cfg.batch_size // cfg.ac_config.num_minibatches)
 
                 tgt_mini = tgt[start_idx:end_idx]
                 tgt_mean = (
