@@ -20,10 +20,7 @@ class GymnaxWrapper(object):
 
 
 class BinaryRewardWrapper(GymnaxWrapper):
-    """Binary reward wrapper for Gymnax environments."""
-
-    def __init__(self, env):
-        super().__init__(env)
+    """Quantizes reward to 0.0 and 1.0."""
 
     @partial(jax.jit, static_argnums=(0, 2))
     def reset(self, key: chex.PRNGKey, params=None):
