@@ -507,7 +507,7 @@ def main(cfg: TrainConfig):
         # 4. Update policy on imagined data
 
         if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
-            for _ in range(cfg.num_updates):
+            for _ in range(cfg.ac_config.num_updates):
                 rng, sample_rng = jax.random.split(rng)
                 data = buffer.sample(buffer_state, sample_rng)
 
