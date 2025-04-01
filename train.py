@@ -392,7 +392,7 @@ def main(cfg: TrainConfig):
 
         mini_logs = []
 
-        for epoch in range(cfg.ac_config.num_epochs):
+        for epoch in tqdm(range(cfg.ac_config.num_epochs)):
             for i in range(cfg.ac_config.num_minibatches):
                 start_idx = i * (cfg.batch_size // cfg.ac_config.num_minibatches)
                 end_idx = (i + 1) * (cfg.batch_size // cfg.ac_config.num_minibatches)
@@ -439,12 +439,11 @@ def main(cfg: TrainConfig):
                     }
                 )
 
-        logs = {}
-
-        for k in mini_logs[0].keys():
-            logs[k] = jnp.array([l[k] for l in mini_logs]).mean()
-
         if cfg.wandb_config.enable:
+            logs = {}
+            for k in mini_logs[0].keys():
+                logs[k] = jnp.array([l[k] for l in mini_logs]).mean()
+
             wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
         agent_state = next_agent_state
@@ -532,7 +531,7 @@ def main(cfg: TrainConfig):
                     agent,
                     imagination_agent_state,
                     obs[:, cfg.burn_in_horizon],
-                    done[:, cfg.burn_in_horizon],
+                    done[:, cfg.burn_in_horizon].astype(jnp.int32),
                     world_model,
                     world_model_train_state.params,
                     tokenizer,
