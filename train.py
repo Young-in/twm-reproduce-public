@@ -70,7 +70,7 @@ def wm_rollout(
                 past_key_values=past_key_values,
             )
 
-            state_rng, reward_rng, done_rng = jax.random.split(key, 3)
+            state_rng, reward_rng, done_rng = jax.random.split(rng, 3)
 
             tokens_per_state = tokens_per_block - 1
             next_state_logits = outputs.observation_logits[:, -tokens_per_state:]
