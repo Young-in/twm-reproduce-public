@@ -289,25 +289,23 @@ def main(cfg: TrainConfig):
     )
 
     # Create replay buffer
-    cpu = jax.devices("cpu")[0]
-    with jax.default_device(cpu):
-        buffer = fbx.make_trajectory_buffer(
-            add_batch_size=cfg.batch_size,
-            sample_batch_size=cfg.batch_size,
-            sample_sequence_length=cfg.wm_rollout_horizon + 1,
-            period=1,
-            min_length_time_axis=cfg.wm_rollout_horizon + 1,
-            max_size=cfg.replay_buffer_size,
-        )
+    buffer = fbx.make_trajectory_buffer(
+        add_batch_size=cfg.batch_size,
+        sample_batch_size=cfg.batch_size,
+        sample_sequence_length=cfg.wm_rollout_horizon + 1,
+        period=1,
+        min_length_time_axis=cfg.wm_rollout_horizon + 1,
+        max_size=cfg.replay_buffer_size,
+    )
 
-        buffer_state = buffer.init(
-            {
-                "obs": jnp.zeros((63, 63, 3), dtype=jnp.float32),
-                "action": jnp.zeros((), dtype=jnp.int32),
-                "reward": jnp.zeros((), dtype=jnp.int32),
-                "done": jnp.zeros((), dtype=jnp.bool),
-            }
-        )
+    buffer_state = buffer.init(
+        {
+            "obs": jnp.zeros((63, 63, 3), dtype=jnp.float32),
+            "action": jnp.zeros((), dtype=jnp.int32),
+            "reward": jnp.zeros((), dtype=jnp.int32),
+            "done": jnp.zeros((), dtype=jnp.bool),
+        }
+    )
 
     tgt_mean = 0
     tgt_std = 0
@@ -338,16 +336,15 @@ def main(cfg: TrainConfig):
             rollout_rng,
         )
 
-        with jax.default_device(cpu):
-            buffer_state = buffer.add(
-                buffer_state,
-                {
-                    "obs": obs,
-                    "action": action,
-                    "reward": reward,
-                    "done": done,
-                },
-            )
+        buffer_state = buffer.add(
+            buffer_state,
+            {
+                "obs": obs,
+                "action": action,
+                "reward": reward,
+                "done": done,
+            },
+        )
 
         if cfg.wandb_config.enable:
             wandb.log(
