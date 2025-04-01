@@ -13,7 +13,7 @@ def run_exp():
         base_cmd=base_cmd,
         param_dict=param_dict,
         partition="a100",
-        timeout="14-00:00:00",
+        timeout="4-00:00:00",
         job_name=job_name,
     )
 
