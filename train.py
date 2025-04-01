@@ -1,17 +1,17 @@
 from dataclasses import asdict
 import functools
 import time
-import pyrallis
-import wandb
 
+from craftax import craftax_env
 import jax
 import jax.numpy as jnp
 from flax import nnx
 from flax.training.train_state import TrainState
 import flashbax as fbx
 import optax
-
-from craftax import craftax_env
+import pyrallis
+from tqdm import tqdm
+import wandb
 
 from configs import TrainConfig
 from env.wrapper import (
@@ -317,11 +317,9 @@ def main(cfg: TrainConfig):
     tgt_std = 0
     debiasing = 0
 
-    for step in range(
-        0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon
+    for step in tqdm(
+        range(0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon)
     ):
-        print(f"{step=}")
-
         # 1. Collect data from environment
 
         rng, rollout_rng = jax.random.split(rng)
@@ -480,8 +478,7 @@ def main(cfg: TrainConfig):
                 params, dropout_key, state_action_ids, rewards, terminations
             )
 
-        for _ in range(cfg.wm_config.num_updates):
-            print(f"world_model train step: {_}")
+        for _ in tqdm(range(cfg.wm_config.num_updates)):
             rng, sample_rng = jax.random.split(rng)
             data = buffer.sample(buffer_state, sample_rng)
 
@@ -513,7 +510,7 @@ def main(cfg: TrainConfig):
         # 4. Update policy on imagined data
 
         if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
-            for _ in range(cfg.ac_config.num_updates):
+            for _ in tqdm(range(cfg.ac_config.num_updates)):
                 rng, sample_rng = jax.random.split(rng)
                 data = buffer.sample(buffer_state, sample_rng)
 
