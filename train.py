@@ -513,14 +513,14 @@ def main(cfg: TrainConfig):
                 reward = data.experience["reward"]
                 done = data.experience["done"]
 
-                curr_obs = obs[:, : cfg.burn_in_horizon]
-                curr_done = done[:, : cfg.burn_in_horizon]
-
                 _, _, imagination_agent_state = agent(
-                    curr_obs,
-                    curr_done,
+                    obs[:, : cfg.burn_in_horizon],
+                    done[:, : cfg.burn_in_horizon],
                     agent.rnn.initialize_carry(cfg.batch_size),
                 )
+
+                curr_obs = obs[:, cfg.burn_in_horizon]
+                curr_done = done[:, cfg.burn_in_horizon]
 
                 rng, rollout_rng = jax.random.split(rng)
                 (
@@ -545,7 +545,9 @@ def main(cfg: TrainConfig):
                     rollout_rng,
                 )
 
-                reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1).astype(jnp.bool)
+                reset = jnp.concatenate(
+                    (curr_done[:, None], done[:, :-1]), axis=1
+                ).astype(jnp.bool)
 
                 value = value * jnp.maximum(
                     tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1
