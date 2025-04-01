@@ -474,29 +474,35 @@ def main(cfg: TrainConfig):
             rng, sample_rng = jax.random.split(rng)
             data = buffer.sample(buffer_state, sample_rng)
 
-            obs = data.experience["obs"]
-            action = data.experience["action"]
-            reward = data.experience["reward"]
-            done = data.experience["done"]
+            for i in range(cfg.wm_config.num_minibatches):
+                start_idx = i * (cfg.batch_size // cfg.wm_config.num_minibatches)
+                end_idx = (i + 1) * (cfg.batch_size // cfg.wm_config.num_minibatches)
 
-            B, T, *_ = obs.shape
-            state_ids = tokenizer(obs, codebook)
+                obs = data.experience["obs"][start_idx:end_idx]
+                action = data.experience["action"][start_idx:end_idx]
+                reward = data.experience["reward"][start_idx:end_idx]
+                done = data.experience["done"][start_idx:end_idx]
 
-            state_action_ids = jnp.concatenate((state_ids, action[:, :, None]), axis=-1)
-            state_action_ids = state_action_ids.reshape(B, -1)
+                B, T, *_ = obs.shape
+                state_ids = tokenizer(obs, codebook)
 
-            rng, dropout_rng = jax.random.split(rng)
-            grads = jax.grad(loss_fn)(
-                world_model_train_state.params,
-                world_model,
-                dropout_rng,
-                state_action_ids,
-                reward[:, :-1],
-                done[:, :-1].astype(jnp.int32),
-            )
-            world_model_train_state = world_model_train_state.apply_gradients(
-                grads=grads
-            )
+                state_action_ids = jnp.concatenate(
+                    (state_ids, action[:, :, None]), axis=-1
+                )
+                state_action_ids = state_action_ids.reshape(B, -1)
+
+                rng, dropout_rng = jax.random.split(rng)
+                grads = jax.grad(loss_fn)(
+                    world_model_train_state.params,
+                    world_model,
+                    dropout_rng,
+                    state_action_ids,
+                    reward[:, :-1],
+                    done[:, :-1].astype(jnp.int32),
+                )
+                world_model_train_state = world_model_train_state.apply_gradients(
+                    grads=grads
+                )
 
         # 4. Update policy on imagined data
 
