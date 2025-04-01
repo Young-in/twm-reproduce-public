@@ -14,7 +14,12 @@ import optax
 from craftax import craftax_env
 
 from configs import TrainConfig
-from env.wrapper import AutoResetEnvWrapper, BatchEnvWrapper, LogWrapper
+from env.wrapper import (
+    AutoResetEnvWrapper,
+    BatchEnvWrapper,
+    BinaryRewardWrapper,
+    LogWrapper,
+)
 from nets.agent import Agent
 from nets.nnt import NearestNeighborTokenizer
 from nets.configuration import GPT2WorldModelConfig
@@ -154,6 +159,7 @@ def main(cfg: TrainConfig):
     env_params = env.default_params
 
     env = LogWrapper(env)
+    env = BinaryRewardWrapper(env)
     env = AutoResetEnvWrapper(env)
     env = BatchEnvWrapper(env, cfg.batch_size)
 
@@ -299,7 +305,7 @@ def main(cfg: TrainConfig):
             {
                 "obs": jnp.zeros((63, 63, 3), dtype=jnp.float32),
                 "action": jnp.zeros((), dtype=jnp.int32),
-                "reward": jnp.zeros((), dtype=jnp.float32),
+                "reward": jnp.zeros((), dtype=jnp.int32),
                 "done": jnp.zeros((), dtype=jnp.bool),
             }
         )
@@ -494,7 +500,7 @@ def main(cfg: TrainConfig):
                 world_model,
                 dropout_rng,
                 state_action_ids,
-                jnp.where(reward[:, :-1] > 0.5, 1, 0).astype(jnp.int32),
+                reward[:, :-1],
                 done[:, :-1].astype(jnp.int32),
             )
             world_model_train_state = world_model_train_state.apply_gradients(
