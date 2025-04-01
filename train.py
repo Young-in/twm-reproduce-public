@@ -85,7 +85,6 @@ def wm_rollout(
             return next_state_ids, reward, done, outputs.past_key_values
 
         state_ids = tokenizer(obs, codebook)
-        state_ids = state_ids.reshape(state_ids.shape[0], -1)
 
         state_action_ids = jnp.concatenate((state_ids, action[:, None]), axis=-1)
 
@@ -489,7 +488,6 @@ def main(cfg: TrainConfig):
 
             B, T, *_ = obs.shape
             state_ids = tokenizer(obs, codebook)
-            state_ids = state_ids.reshape(B, T, -1)
 
             state_action_ids = jnp.concatenate((state_ids, action[:, :, None]), axis=-1)
             state_action_ids = state_action_ids.reshape(B, -1)
