@@ -51,7 +51,7 @@ def wm_rollout(
         value = value.squeeze(axis=1)
 
         # TODO: static_argnums for `params`?
-        @functools.partial(jax.jit, static_argnums=(1, 2))
+        @functools.partial(jax.jit, static_argnums=(1,))
         def imagine_state(key, world_model, params, state_action_ids, past_key_values):
             input_ids = state_action_ids[:, -tokens_per_block:]
             total_seq_len = state_action_ids.shape[1]
@@ -458,7 +458,21 @@ def main(cfg: TrainConfig):
 
             codebook, codebook_size = tokenizer.update(obs, codebook, codebook_size)
 
+        @functools.partial(jax.jit, static_argnums=(1,))
+        def loss_fn(
+            params,
+            world_model,
+            dropout_key,
+            state_action_ids,
+            rewards,
+            terminations,
+        ):
+            return world_model.loss(
+                params, dropout_key, state_action_ids, rewards, terminations
+            )
+
         for _ in range(cfg.wm_config.num_updates):
+            print(f"world_model train step: {_}")
             rng, sample_rng = jax.random.split(rng)
             data = buffer.sample(buffer_state, sample_rng)
 
@@ -474,24 +488,10 @@ def main(cfg: TrainConfig):
             state_action_ids = jnp.concatenate((state_ids, action[:, :, None]), axis=-1)
             state_action_ids = state_action_ids.reshape(B, -1)
 
-            @functools.partial(jax.jit, static_argnums=(0,))
-            def loss_fn(
-                world_model,
-                params,
-                dropout_key,
-                state_action_ids,
-                rewards,
-                terminations,
-            ):
-                return world_model.loss(
-                    params, dropout_key, state_action_ids, rewards, terminations
-                )
-
             rng, dropout_rng = jax.random.split(rng)
-            # TODO: Modify grad of loss_fn to accept `world_model`
             grads = jax.grad(loss_fn)(
-                world_model,
                 world_model_train_state.params,
+                world_model,
                 dropout_rng,
                 state_action_ids,
                 jnp.where(reward[:, :-1] > 0.5, 1, 0).astype(jnp.int32),
