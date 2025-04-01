@@ -50,9 +50,8 @@ def wm_rollout(
         log_prob = log_prob.squeeze(axis=1)
         value = value.squeeze(axis=1)
 
-        # TODO: static_argnums for `params`?
         @functools.partial(jax.jit, static_argnums=(1,))
-        def imagine_state(key, world_model, params, state_action_ids, past_key_values):
+        def imagine_state(rng, world_model, params, state_action_ids, past_key_values):
             input_ids = state_action_ids[:, -tokens_per_block:]
             total_seq_len = state_action_ids.shape[1]
             position_ids = jnp.broadcast_to(
@@ -66,20 +65,27 @@ def wm_rollout(
                 past_key_values=past_key_values,
             )
 
+            state_rng, reward_rng, done_rng = jax.random.split(key, 3)
+
             tokens_per_state = tokens_per_block - 1
             next_state_logits = outputs.observation_logits[:, -tokens_per_state:]
-            next_state_ids = jax.random.categorical(key, next_state_logits)
+            next_state_ids = jax.random.categorical(state_rng, next_state_logits)
 
-            return next_state_ids, outputs.past_key_values
+            reward_logits = outputs.reward_logits[:, -1]
+            reward = jax.random.categorical(reward_rng, reward_logits)
 
-        # TODO: Encode obs + action into state_action_ids
+            done_logits = outputs.termination_logits[:, -1]
+            done = jax.random.categorical(done_rng, done_logits)
+
+            return next_state_ids, reward, done, outputs.past_key_values
+
         state_ids = tokenizer(obs, codebook)
         state_ids = state_ids.reshape(state_ids.shape[0], -1)
 
         state_action_ids = jnp.concatenate((state_ids, action[:, None]), axis=-1)
 
         rng, step_rng = jax.random.split(rng)
-        next_state_ids, past_key_values = imagine_state(
+        next_state_ids, reward, done, past_key_values = imagine_state(
             step_rng,
             world_model,
             world_model_params,
@@ -87,9 +93,7 @@ def wm_rollout(
             past_key_values,
         )
 
-        # TODO: Decode obs
         next_obs = tokenizer.decode(next_state_ids, codebook)
-        done = None
 
         return (next_obs, done, agent_state, past_key_values), (
             obs,
@@ -107,7 +111,6 @@ def wm_rollout(
 
     batch_size = curr_obs.shape[0]
     past_key_values = init_cache(world_model, batch_size)
-    # TODO: Resolve "Non-hashable static arguments are not supported". Details in Notion page
     (curr_obs, curr_done, agent_state, _), (
         obs,
         action,
