@@ -389,8 +389,8 @@ def main(cfg: TrainConfig):
 
         mini_logs = []
 
-        for epoch in range(cfg.num_epochs):
-            for i in range(cfg.num_minibatches):
+        for epoch in range(cfg.ac_config.num_epochs):
+            for i in range(cfg.ac_config.num_minibatches):
                 start_idx = i * (cfg.batch_size // cfg.ac_config.num_minibatches)
                 end_idx = (i + 1) * (cfg.batch_size // cfg.ac_config.num_minibatches)
 
