@@ -71,16 +71,12 @@ class BatchEnvWrapper(GymnaxWrapper):
 class AutoResetEnvWrapper(GymnaxWrapper):
     """Provides standard auto-reset functionality, providing the same behaviour as Gymnax-default."""
 
-    def __init__(self, env):
-        super().__init__(env)
-
     @partial(jax.jit, static_argnums=(0, 2))
     def reset(self, key, params=None):
         return self._env.reset(key, params)
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(self, rng, state, action, params=None):
-
         rng, _rng = jax.random.split(rng)
         obs_st, state_st, reward, done, info = self._env.step(
             _rng, state, action, params
