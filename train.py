@@ -513,9 +513,12 @@ def main(cfg: TrainConfig):
                 reward = data.experience["reward"]
                 done = data.experience["done"]
 
+                curr_obs = obs[:, : cfg.burn_in_horizon]
+                curr_done = done[:, : cfg.burn_in_horizon]
+
                 _, _, imagination_agent_state = agent(
-                    obs[:, : cfg.burn_in_horizon],
-                    done[:, : cfg.burn_in_horizon],
+                    curr_obs,
+                    curr_done,
                     agent.rnn.initialize_carry(cfg.batch_size),
                 )
 
@@ -530,8 +533,8 @@ def main(cfg: TrainConfig):
                 ) = wm_rollout(
                     agent,
                     imagination_agent_state,
-                    obs[:, cfg.burn_in_horizon],
-                    done[:, cfg.burn_in_horizon].astype(jnp.int32),
+                    curr_obs,
+                    curr_done.astype(jnp.int32),
                     world_model,
                     world_model_train_state.params,
                     tokenizer,
@@ -541,6 +544,8 @@ def main(cfg: TrainConfig):
                     config.tokens_per_block,
                     rollout_rng,
                 )
+
+                reset = jnp.concatenate((curr_done[:, None], done[:, :-1]), axis=1).astype(jnp.bool)
 
                 value = value * jnp.maximum(
                     tgt_std / jnp.maximum(debiasing, 1e-1), 1e-1
