@@ -106,7 +106,6 @@ def wm_rollout(
             value,
             reward,
             done,
-            info,
         )
 
     @functools.partial(jax.jit, static_argnums=(0, 1))
@@ -122,7 +121,6 @@ def wm_rollout(
         value,
         reward,
         done,
-        info,
     ) = nnx.scan(one_step, out_axes=(nnx.transforms.iteration.Carry, 1))(
         (curr_obs, curr_done, agent_state, past_key_values),
         jax.random.split(rollout_rng, horizon),
@@ -139,7 +137,6 @@ def wm_rollout(
         jnp.concatenate((value, last_value), axis=1),
         reward,
         done,
-        info,
     )
 
 
@@ -531,7 +528,6 @@ def main(cfg: TrainConfig):
                     value,
                     reward,
                     done,
-                    info,
                 ) = wm_rollout(
                     agent,
                     imagination_agent_state,
