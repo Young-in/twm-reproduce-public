@@ -28,6 +28,16 @@ from nets.world_model import FlaxGPT2WorldModel
 from utils.gae import calc_adv_tgt
 
 
+@functools.partial(
+    nnx.jit,
+    static_argnames=(
+        "world_model",
+        "tokenizer",
+        "horizon",
+        "max_tokens",
+        "tokens_per_block",
+    ),
+)
 def wm_rollout(
     agent,
     agent_state,
@@ -55,7 +65,6 @@ def wm_rollout(
         log_prob = log_prob.squeeze(axis=1)
         value = value.squeeze(axis=1)
 
-        @functools.partial(jax.jit, static_argnums=(1,))
         def imagine_state(rng, world_model, params, state_action_ids, past_key_values):
             input_ids = state_action_ids[:, -tokens_per_block:]
             total_seq_len = state_action_ids.shape[1]
@@ -108,7 +117,6 @@ def wm_rollout(
             done,
         )
 
-    @functools.partial(jax.jit, static_argnums=(0, 1))
     def init_cache(world_model, batch_size):
         return world_model.init_cache(batch_size, max_tokens)
 
@@ -237,6 +245,19 @@ def main(cfg: TrainConfig):
             reward,
             done,
             info,
+        )
+    
+    @functools.partial(jax.jit, static_argnums=(1,))
+    def wm_loss_fn(
+        params,
+        world_model,
+        dropout_key,
+        state_action_ids,
+        rewards,
+        terminations,
+    ):
+        return world_model.loss(
+            params, dropout_key, state_action_ids, rewards, terminations
         )
 
     num_actions = env.action_space(env_params).n
@@ -457,18 +478,6 @@ def main(cfg: TrainConfig):
 
             codebook, codebook_size = tokenizer.update(obs, codebook, codebook_size)
 
-        @functools.partial(jax.jit, static_argnums=(1,))
-        def loss_fn(
-            params,
-            world_model,
-            dropout_key,
-            state_action_ids,
-            rewards,
-            terminations,
-        ):
-            return world_model.loss(
-                params, dropout_key, state_action_ids, rewards, terminations
-            )
 
         for _ in tqdm(range(cfg.wm_config.num_updates)):
             rng, sample_rng = jax.random.split(rng)
@@ -492,7 +501,7 @@ def main(cfg: TrainConfig):
                 state_action_ids = state_action_ids.reshape(B, -1)
 
                 rng, dropout_rng = jax.random.split(rng)
-                grads = jax.grad(loss_fn)(
+                grads = jax.grad(wm_loss_fn)(
                     world_model_train_state.params,
                     world_model,
                     dropout_rng,
