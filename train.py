@@ -56,7 +56,6 @@ class Trainer:
         self.wm_rollout = self.build_wm_rollout()
 
     def build_environment(self, batch_size: int):
-        # Create environment
         env = craftax_env.make_craftax_env_from_name(
             "Craftax-Classic-Pixels-v1", auto_reset=True
         )
@@ -158,9 +157,6 @@ class Trainer:
             rngs=nnx.Rngs(cfg.seed),
         )
 
-        nnx.display(agent)
-
-        # Create optimizer
         tx = optax.chain(
             optax.clip_by_global_norm(cfg.max_grad_norm),
             optax.adam(learning_rate=cfg.ac_config.learning_rate, eps=1e-5),
@@ -172,7 +168,6 @@ class Trainer:
     def build_world_model(self, rng):
         cfg = self.cfg
 
-        # Create world model
         config = GPT2WorldModelConfig(
             num_actions=self.num_actions,
             **asdict(cfg.wm_config.params),
@@ -196,7 +191,6 @@ class Trainer:
     def build_buffer(self):
         cfg = self.cfg
 
-        # Create replay buffer
         buffer = fbx.make_trajectory_buffer(
             add_batch_size=cfg.batch_size,
             sample_batch_size=cfg.batch_size,
@@ -392,11 +386,13 @@ class Trainer:
         for step in tqdm(
             range(0, cfg.total_env_interactions, cfg.batch_size * cfg.rollout_horizon)
         ):
+            # 1. Collect data from environment
             rng, rollout_rng = jax.random.split(rng)
             data, next_agent_state = self.collect_from_env(
                 rollout_rng, step + cfg.batch_size * cfg.rollout_horizon
             )
 
+            # 2. Update policy on environment data
             self.learn_policy(
                 data,
                 self.agent_state,
@@ -407,6 +403,7 @@ class Trainer:
 
             self.agent_state = next_agent_state
 
+            # 3. Update world model
             rng, sample_rng = jax.random.split(rng)
             self.learn_world_model(sample_rng)
 
@@ -425,7 +422,6 @@ class Trainer:
     def collect_from_env(self, rollout_rng, step):
         cfg = self.cfg
 
-        # 1. Collect data from environment
         (self.curr_obs, next_done, self.env_state, next_agent_state), (
             obs,
             action,
@@ -502,7 +498,6 @@ class Trainer:
 
         obs, reset, action, log_prob, adv, tgt = data
 
-        # 2. Update policy on environment data
         mini_logs = []
 
         for epoch in tqdm(range(n_epochs)):
@@ -561,8 +556,6 @@ class Trainer:
 
     def learn_world_model(self, rng):
         cfg = self.cfg
-
-        # 3. Update world model
 
         # Update tokenizer
         for _ in range(cfg.token_config.num_updates):
