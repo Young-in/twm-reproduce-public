@@ -3,11 +3,11 @@ import functools
 import time
 
 from craftax import craftax_env
-import jax
-import jax.numpy as jnp
+import flashbax as fbx
 from flax import nnx
 from flax.training.train_state import TrainState
-import flashbax as fbx
+import jax
+import jax.numpy as jnp
 import optax
 import pyrallis
 from tqdm import tqdm
@@ -246,7 +246,7 @@ def main(cfg: TrainConfig):
             done,
             info,
         )
-    
+
     @functools.partial(jax.jit, static_argnums=(1,))
     def wm_loss_fn(
         params,
@@ -477,7 +477,6 @@ def main(cfg: TrainConfig):
             obs = data.experience["obs"]
 
             codebook, codebook_size = tokenizer.update(obs, codebook, codebook_size)
-
 
         for _ in tqdm(range(cfg.wm_config.num_updates)):
             rng, sample_rng = jax.random.split(rng)
