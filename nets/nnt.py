@@ -60,7 +60,7 @@ class NearestNeighborTokenizer:
     @functools.partial(nnx.jit, static_argnums=(0,))
     def decode(self, x, codebook):
         *_, seq_len = x.shape
-        x = x.reshape(*_, self.grid_size, self.grid_size)
+        x = x.reshape(-1, self.grid_size, self.grid_size)
         x = jnp.take(codebook, x, axis=0)
         x = x.transpose(0, 1, 3, 2, 4, 5)
         x = x.reshape(
