@@ -194,9 +194,9 @@ class Trainer:
         buffer = fbx.make_trajectory_buffer(
             add_batch_size=cfg.batch_size,
             sample_batch_size=cfg.batch_size,
-            sample_sequence_length=cfg.wm_rollout_horizon + 1,
+            sample_sequence_length=max(cfg.wm_rollout_horizon + 1, cfg.burn_in_horizon),
             period=1,
-            min_length_time_axis=cfg.wm_rollout_horizon + 1,
+            min_length_time_axis=max(cfg.wm_rollout_horizon + 1, cfg.burn_in_horizon),
             max_size=cfg.replay_buffer_size,
         )
 
@@ -265,11 +265,8 @@ class Trainer:
                 log_prob = log_prob.squeeze(axis=1)
                 value = value.squeeze(axis=1)
 
-                def imagine_state(
-                    rng, world_model, params, state_action_ids, past_key_values
-                ):
-                    input_ids = state_action_ids[:, -tokens_per_block:]
-                    total_seq_len = state_action_ids.shape[1]
+                def imagine_state(rng, world_model, params, input_ids, past_key_values):
+                    total_seq_len = self._get_cache_len(past_key_values)
                     position_ids = jnp.broadcast_to(
                         jnp.arange(total_seq_len - tokens_per_block, total_seq_len)[
                             None, :
@@ -661,6 +658,13 @@ class Trainer:
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
         return (obs, reset, action, log_prob, adv, tgt), imagination_agent_state
+
+    @staticmethod
+    def _get_cache_len(past_key_values):
+        import ipdb
+
+        ipdb.set_trace()
+        return past_key_values["cache_index"].value
 
 
 @pyrallis.wrap()
