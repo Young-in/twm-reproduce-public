@@ -507,5 +507,5 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
         rngs = {"dropout": dropout_rng}
 
         inputs = {"params": params}
-        outputs = self.apply(inputs, *args, **kwargs, method="loss", rngs=rngs)
+        outputs = self.apply(inputs, *args, **kwargs, method="_loss", rngs=rngs)
         return outputs
