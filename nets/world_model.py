@@ -461,6 +461,14 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
         loss = observation_loss + reward_loss + termination_loss
         return loss
 
+    def loss(self, params: dict, dropout_rng: jax.random.PRNGKey, *args, **kwargs):
+        rngs = {"dropout": dropout_rng}
+
+        inputs = {"params": params}
+        outputs = self.apply(inputs, *args, **kwargs, method="_loss", rngs=rngs)
+        return outputs
+
+    # Copied from https://github.com/huggingface/transformers/blob/f697b3f82411c12cf59b0d29b17a5f3a9f93a9c1/src/transformers/models/gpt2/modeling_flax_gpt2.py#L380
     def init_weights(self, rng: jax.random.PRNGKey, input_shape: Tuple) -> FrozenDict:
         # init input tensors
         input_ids = jnp.zeros(input_shape, dtype="i4")
@@ -508,13 +516,6 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
             init_cache=True,
         )
         return unfreeze(init_variables["cache"])
-
-    def loss(self, params: dict, dropout_rng: jax.random.PRNGKey, *args, **kwargs):
-        rngs = {"dropout": dropout_rng}
-
-        inputs = {"params": params}
-        outputs = self.apply(inputs, *args, **kwargs, method="_loss", rngs=rngs)
-        return outputs
 
     def __call__(
         self,
