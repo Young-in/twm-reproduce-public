@@ -43,7 +43,6 @@ class WorldModelParams:
 class WorldModelConfig:
     params: WorldModelParams = WorldModelParams()
 
-    sequence_length: int = 20
     num_updates: int = 500
     num_minibatches: int = 3
 
