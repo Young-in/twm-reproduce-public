@@ -3,11 +3,11 @@ import functools
 import time
 
 from craftax import craftax_env
-import jax
-import jax.numpy as jnp
+import flashbax as fbx
 from flax import nnx
 from flax.training.train_state import TrainState
-import flashbax as fbx
+import jax
+import jax.numpy as jnp
 import optax
 import pyrallis
 from tqdm import tqdm
