@@ -436,7 +436,7 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
     def _loss(self, state_action_ids, rewards, terminations):
         input_ids = state_action_ids[:, : -self.config.tokens_per_block]
         attention_mask = jnp.ones_like(input_ids)
-        outputs = self(input_ids, attention_mask, deterministic=False)
+        outputs = self.forward(input_ids, attention_mask, deterministic=False)
 
         observation_labels = state_action_ids[:, self.config.tokens_per_block :]
         observation_labels = slice_observations(
