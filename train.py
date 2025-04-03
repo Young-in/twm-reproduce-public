@@ -23,8 +23,7 @@ from env.wrapper import (
 from nets.agent import Agent
 from nets.nnt import NearestNeighborTokenizer
 from nets.configuration import GPT2WorldModelConfig
-from nets.configuration import GPT2WorldModelConfig
-from nets.world_model import FlaxGPT2WorldModel
+from nets.world_model import FlaxGPT2WorldModelModule
 from utils.gae import calc_adv_tgt
 
 
@@ -173,7 +172,7 @@ class Trainer:
             **asdict(cfg.wm_config.params),
         )
         input_shape = (cfg.batch_size, config.max_tokens)
-        world_model = FlaxGPT2WorldModel(config, input_shape, cfg.seed)
+        world_model = FlaxGPT2WorldModelModule(config)
         rng, init_weights_rng = jax.random.split(rng)
         world_model_params = world_model.init_weights(init_weights_rng, input_shape)
 
@@ -182,7 +181,7 @@ class Trainer:
             optax.adam(cfg.wm_config.learning_rate, eps=1e-5),
         )
         world_model_train_state = TrainState.create(
-            apply_fn=world_model.module.apply,
+            apply_fn=world_model.apply,
             params=world_model_params,
             tx=world_model_tx,
         )
@@ -418,7 +417,9 @@ class Trainer:
             if cfg.wandb_config.enable:
                 logs = {}
                 for k in policy_env_logs[0].keys():
-                    logs[f"policy_env/{k}"] = jnp.array([l[k] for l in policy_env_logs]).mean()
+                    logs[f"policy_env/{k}"] = jnp.array(
+                        [l[k] for l in policy_env_logs]
+                    ).mean()
 
                 wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
@@ -428,6 +429,7 @@ class Trainer:
             rng, sample_rng = jax.random.split(rng)
             self.learn_world_model(sample_rng)
 
+            # 4. Update policy on imagined data
             if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
                 policy_img_logs = []
                 for _ in tqdm(range(cfg.ac_config.num_updates)):
@@ -440,11 +442,13 @@ class Trainer:
                         1,
                     )
                     policy_img_logs.extend(single_log)
-                
+
                 if cfg.wandb_config.enable:
                     logs = {}
                     for k in policy_img_logs[0].keys():
-                        logs[f"policy_img/{k}"] = jnp.array([l[k] for l in policy_img_logs]).mean()
+                        logs[f"policy_img/{k}"] = jnp.array(
+                            [l[k] for l in policy_img_logs]
+                        ).mean()
 
                     wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
@@ -577,7 +581,6 @@ class Trainer:
                 )
 
         return mini_logs
-
 
     def learn_world_model(self, rng):
         cfg = self.cfg

@@ -1,7 +1,9 @@
 from typing import Optional, Tuple
 
+from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
 import flax.linen as nn
 from flax.linen.attention import dot_product_attention_weights
+from flax.traverse_util import flatten_dict, unflatten_dict
 import jax
 from jax import lax
 import jax.numpy as jnp
@@ -431,7 +433,7 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
             termination_logits=termination_logits,
         )
 
-    def loss(self, state_action_ids, rewards, terminations):
+    def _loss(self, state_action_ids, rewards, terminations):
         input_ids = state_action_ids[:, : -self.config.tokens_per_block]
         attention_mask = jnp.ones_like(input_ids)
         outputs = self(input_ids, attention_mask, deterministic=False)
@@ -459,30 +461,51 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
         loss = observation_loss + reward_loss + termination_loss
         return loss
 
+    def init_weights(self, rng: jax.random.PRNGKey, input_shape: Tuple) -> FrozenDict:
+        # init input tensors
+        input_ids = jnp.zeros(input_shape, dtype="i4")
+        attention_mask = jnp.ones_like(input_ids)
+        position_ids = jnp.broadcast_to(
+            jnp.arange(jnp.atleast_2d(input_ids).shape[-1]), input_shape
+        )
+        params_rng, dropout_rng = jax.random.split(rng)
+        rngs = {"params": params_rng, "dropout": dropout_rng}
 
-# TODO Replace this class with static methods on FlaxGP2WorldModelModule
-class FlaxGPT2WorldModel(FlaxGPT2Model):
-    module_class = FlaxGPT2WorldModelModule
-
-    def __init__(
-        self,
-        config: GPT2WorldModelConfig,
-        input_shape: Tuple = (1, 1),
-        seed: int = 0,
-        dtype: jnp.dtype = jnp.float32,
-        _do_init: bool = False,
-        **kwargs,
-    ):
-        super().__init__(
-            config, input_shape=input_shape, seed=seed, dtype=dtype, _do_init=_do_init
+        module_init_outputs = self.init(
+            rngs, input_ids, attention_mask, position_ids, return_dict=False
         )
 
-    def __hash__(self):
-        return id(self)
+        return module_init_outputs["params"]
+
+    def init_cache(self, batch_size, max_length):
+        r"""
+        Args:
+            batch_size (`int`):
+                batch_size used for fast auto-regressive decoding. Defines the batch size of the initialized cache.
+            max_length (`int`):
+                maximum possible length for auto-regressive decoding. Defines the sequence length of the initialized
+                cache.
+        """
+        # init input variables to retrieve cache
+        input_ids = jnp.ones((batch_size, max_length))
+        attention_mask = jnp.ones_like(input_ids)
+        position_ids = jnp.broadcast_to(
+            jnp.arange(jnp.atleast_2d(input_ids).shape[-1]), input_ids.shape
+        )
+
+        init_variables = self.init(
+            jax.random.PRNGKey(0),
+            input_ids,
+            attention_mask,
+            position_ids,
+            return_dict=False,
+            init_cache=True,
+        )
+        return unfreeze(init_variables["cache"])
 
     def loss(self, params: dict, dropout_rng: jax.random.PRNGKey, *args, **kwargs):
         rngs = {"dropout": dropout_rng}
 
         inputs = {"params": params}
-        outputs = self.module.apply(inputs, *args, **kwargs, method="loss", rngs=rngs)
+        outputs = self.apply(inputs, *args, **kwargs, method="loss", rngs=rngs)
         return outputs
