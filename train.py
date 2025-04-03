@@ -393,13 +393,19 @@ class Trainer:
             )
 
             # 2. Update policy on environment data
-            self.learn_policy(
+            policy_env_logs = self.learn_policy(
                 data,
                 self.agent_state,
                 cfg.ac_config.num_epochs,
                 cfg.ac_config.num_minibatches,
-                step + cfg.batch_size * cfg.rollout_horizon,
             )
+
+            if cfg.wandb_config.enable:
+                logs = {}
+                for k in policy_env_logs[0].keys():
+                    logs[f"policy_env/{k}"] = jnp.array([l[k] for l in policy_env_logs]).mean()
+
+                wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
             self.agent_state = next_agent_state
 
@@ -408,16 +414,24 @@ class Trainer:
             self.learn_world_model(sample_rng)
 
             if step + cfg.batch_size * cfg.rollout_horizon >= cfg.warmup_interactions:
+                policy_img_logs = []
                 for _ in tqdm(range(cfg.ac_config.num_updates)):
                     rng, collect_rng = jax.random.split(rng)
                     data, imagination_agent_state = self.collect_from_wm(collect_rng)
-                    self.learn_policy(
+                    single_log = self.learn_policy(
                         data,
                         imagination_agent_state,
                         1,
                         1,
-                        step + cfg.batch_size * cfg.rollout_horizon,
                     )
+                    policy_img_logs.extend(single_log)
+                
+                if cfg.wandb_config.enable:
+                    logs = {}
+                    for k in policy_img_logs[0].keys():
+                        logs[logs[f"policy_img/{k}"]] = jnp.array([l[k] for l in policy_img_logs]).mean()
+
+                    wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
     def collect_from_env(self, rollout_rng, step):
         cfg = self.cfg
@@ -493,7 +507,7 @@ class Trainer:
 
         return (obs, reset, action, log_prob, adv, tgt), next_agent_state
 
-    def learn_policy(self, data, agent_state, n_epochs, n_minibatches, step):
+    def learn_policy(self, data, agent_state, n_epochs, n_minibatches):
         cfg = self.cfg
 
         obs, reset, action, log_prob, adv, tgt = data
@@ -542,17 +556,13 @@ class Trainer:
 
                 mini_logs.append(
                     {
-                        "loss": loss,
+                        "total_loss": loss,
                         **metrics,
                     }
                 )
 
-        if cfg.wandb_config.enable:
-            logs = {}
-            for k in mini_logs[0].keys():
-                logs[k] = jnp.array([l[k] for l in mini_logs]).mean()
+        return mini_logs
 
-            wandb.log(logs, step=step)
 
     def learn_world_model(self, rng):
         cfg = self.cfg
