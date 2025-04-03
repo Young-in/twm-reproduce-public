@@ -64,7 +64,7 @@ class NearestNeighborTokenizer:
         x = jnp.take(codebook, x, axis=0)
         x = x.transpose(0, 1, 3, 2, 4, 5)
         x = x.reshape(
-            -1,
+            *_,
             self.grid_size * self.patch_size,
             self.grid_size * self.patch_size,
             x.shape[-1],
