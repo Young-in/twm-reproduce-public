@@ -330,8 +330,8 @@ class Trainer:
                     next_obs,
                     done,
                     agent_state,
+                    position_ids,
                     past_key_values,
-                    past_key_value_len,
                 ), (
                     obs,
                     action,
@@ -347,7 +347,7 @@ class Trainer:
             batch_size = curr_obs.shape[0]
             position_ids = jnp.arange(tokens_per_block)[None, :]
             past_key_values = init_cache(world_model, batch_size)
-            (curr_obs, curr_done, agent_state, _), (
+            (curr_obs, curr_done, agent_state, _, _), (
                 obs,
                 action,
                 log_prob,
