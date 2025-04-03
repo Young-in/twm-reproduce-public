@@ -345,7 +345,7 @@ class Trainer:
                 return world_model.init_cache(batch_size, max_tokens)
 
             batch_size = curr_obs.shape[0]
-            position_ids = jnp.arange(tokens_per_block - 1)[None, :]
+            position_ids = jnp.arange(tokens_per_block)[None, :]
             past_key_values = init_cache(world_model, batch_size)
             (curr_obs, curr_done, agent_state, _), (
                 obs,
