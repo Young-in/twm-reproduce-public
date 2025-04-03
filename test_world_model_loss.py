@@ -2,7 +2,7 @@ from functools import partial
 
 import jax
 
-from nets.world_model import FlaxGPT2WorldModel
+from nets.world_model import FlaxGPT2WorldModelModule
 from nets.configuration import GPT2WorldModelConfig
 
 
@@ -29,7 +29,7 @@ def main(seed=0, batch_size=48, tokens_per_block=82, max_blocks=20, vocab_size=4
         attn_pdrop=0.1,
     )
     input_shape = (batch_size, config.max_tokens)
-    world_model = FlaxGPT2WorldModel(config, input_shape, seed)
+    world_model = FlaxGPT2WorldModelModule(config)
 
     key = jax.random.PRNGKey(seed)
     key, init_weights_key, state_ids_key = jax.random.split(key, 3)

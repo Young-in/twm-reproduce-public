@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import tqdm
 
 from nets.configuration import GPT2WorldModelConfig
-from nets.world_model import FlaxGPT2WorldModel
+from nets.world_model import FlaxGPT2WorldModelModule
 from utils.meaasure_time import MeasureTime
 
 
@@ -45,9 +45,9 @@ def imagine_state(key, world_model, config, params, state_action_ids, past_key_v
         input_ids.shape,
     )
     outputs = world_model(
+        params,
         input_ids,
         position_ids=position_ids,
-        params=params,
         past_key_values=past_key_values,
     )
 
@@ -90,7 +90,7 @@ def measure_inference_time(
     )
 
     input_shape = (batch_size, config.max_tokens)
-    world_model = FlaxGPT2WorldModel(config, input_shape, seed)
+    world_model = FlaxGPT2WorldModelModule(config)
 
     key = jax.random.PRNGKey(seed)
     key, init_weights_key, initial_state_key, imagine_key = jax.random.split(key, 4)

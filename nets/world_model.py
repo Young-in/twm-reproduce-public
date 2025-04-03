@@ -1,7 +1,9 @@
 from typing import Optional, Tuple
 
+from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
 import flax.linen as nn
 from flax.linen.attention import dot_product_attention_weights
+from flax.traverse_util import flatten_dict, unflatten_dict
 import jax
 from jax import lax
 import jax.numpy as jnp
@@ -373,7 +375,7 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
             ),
         )
 
-    def __call__(
+    def forward(
         self,
         input_ids,
         attention_mask,
@@ -431,10 +433,10 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
             termination_logits=termination_logits,
         )
 
-    def loss(self, state_action_ids, rewards, terminations):
+    def _loss(self, state_action_ids, rewards, terminations):
         input_ids = state_action_ids[:, : -self.config.tokens_per_block]
         attention_mask = jnp.ones_like(input_ids)
-        outputs = self(input_ids, attention_mask, deterministic=False)
+        outputs = self.forward(input_ids, attention_mask, deterministic=False)
 
         observation_labels = state_action_ids[:, self.config.tokens_per_block :]
         observation_labels = slice_observations(
@@ -459,30 +461,148 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
         loss = observation_loss + reward_loss + termination_loss
         return loss
 
-
-# TODO Replace this class with static methods on FlaxGP2WorldModelModule
-class FlaxGPT2WorldModel(FlaxGPT2Model):
-    module_class = FlaxGPT2WorldModelModule
-
-    def __init__(
-        self,
-        config: GPT2WorldModelConfig,
-        input_shape: Tuple = (1, 1),
-        seed: int = 0,
-        dtype: jnp.dtype = jnp.float32,
-        _do_init: bool = False,
-        **kwargs,
-    ):
-        super().__init__(
-            config, input_shape=input_shape, seed=seed, dtype=dtype, _do_init=_do_init
-        )
-
-    def __hash__(self):
-        return id(self)
-
     def loss(self, params: dict, dropout_rng: jax.random.PRNGKey, *args, **kwargs):
         rngs = {"dropout": dropout_rng}
 
         inputs = {"params": params}
-        outputs = self.module.apply(inputs, *args, **kwargs, method="loss", rngs=rngs)
+        outputs = self.apply(inputs, *args, **kwargs, method="_loss", rngs=rngs)
+        return outputs
+
+    # Copied from https://github.com/huggingface/transformers/blob/f697b3f82411c12cf59b0d29b17a5f3a9f93a9c1/src/transformers/models/gpt2/modeling_flax_gpt2.py#L380
+    def init_weights(self, rng: jax.random.PRNGKey, input_shape: Tuple) -> FrozenDict:
+        # init input tensors
+        input_ids = jnp.zeros(input_shape, dtype="i4")
+        attention_mask = jnp.ones_like(input_ids)
+        position_ids = jnp.broadcast_to(
+            jnp.arange(jnp.atleast_2d(input_ids).shape[-1]), input_shape
+        )
+        params_rng, dropout_rng = jax.random.split(rng)
+        rngs = {"params": params_rng, "dropout": dropout_rng}
+
+        module_init_outputs = self.init(
+            rngs,
+            input_ids,
+            attention_mask,
+            position_ids,
+            method="forward",
+            return_dict=False,
+        )
+
+        return module_init_outputs["params"]
+
+    def init_cache(self, batch_size, max_length):
+        r"""
+        Args:
+            batch_size (`int`):
+                batch_size used for fast auto-regressive decoding. Defines the batch size of the initialized cache.
+            max_length (`int`):
+                maximum possible length for auto-regressive decoding. Defines the sequence length of the initialized
+                cache.
+        """
+        # init input variables to retrieve cache
+        input_ids = jnp.ones((batch_size, max_length))
+        attention_mask = jnp.ones_like(input_ids)
+        position_ids = jnp.broadcast_to(
+            jnp.arange(jnp.atleast_2d(input_ids).shape[-1]), input_ids.shape
+        )
+
+        init_variables = self.init(
+            jax.random.PRNGKey(0),
+            input_ids,
+            attention_mask,
+            position_ids,
+            method="forward",
+            return_dict=False,
+            init_cache=True,
+        )
+        return unfreeze(init_variables["cache"])
+
+    def __call__(
+        self,
+        params: dict,
+        input_ids,
+        attention_mask=None,
+        position_ids=None,
+        encoder_hidden_states: Optional[jnp.ndarray] = None,
+        encoder_attention_mask: Optional[jnp.ndarray] = None,
+        past_key_values: dict = None,
+        dropout_rng: jax.random.PRNGKey = None,
+        train: bool = False,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ):
+        output_attentions = (
+            output_attentions
+            if output_attentions is not None
+            else self.config.output_attentions
+        )
+        output_hidden_states = (
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.config.output_hidden_states
+        )
+        return_dict = (
+            return_dict if return_dict is not None else self.config.return_dict
+        )
+
+        if encoder_hidden_states is not None and encoder_attention_mask is None:
+            batch_size, sequence_length = encoder_hidden_states.shape[:2]
+            encoder_attention_mask = jnp.ones((batch_size, sequence_length))
+
+        batch_size, sequence_length = input_ids.shape
+
+        if position_ids is None:
+            if past_key_values is not None:
+                raise ValueError(
+                    "Make sure to provide `position_ids` when passing `past_key_values`."
+                )
+
+            position_ids = jnp.broadcast_to(
+                jnp.arange(sequence_length)[None, :], (batch_size, sequence_length)
+            )
+
+        if attention_mask is None:
+            attention_mask = jnp.ones((batch_size, sequence_length))
+
+        # Handle any PRNG if needed
+        rngs = {}
+        if dropout_rng is not None:
+            rngs["dropout"] = dropout_rng
+
+        inputs = {"params": params}
+
+        # if past_key_values are passed then cache is already initialized a private flag init_cache has to be passed down to ensure cache is used. It has to be made sure that cache is marked as mutable so that it can be changed by FlaxGPT2Attention module
+        if past_key_values:
+            inputs["cache"] = past_key_values
+            mutable = ["cache"]
+        else:
+            mutable = False
+
+        outputs = self.apply(
+            inputs,
+            jnp.array(input_ids, dtype="i4"),
+            jnp.array(attention_mask, dtype="i4"),
+            jnp.array(position_ids, dtype="i4"),
+            encoder_hidden_states,
+            encoder_attention_mask,
+            not train,
+            False,
+            output_attentions,
+            output_hidden_states,
+            return_dict,
+            method="forward",
+            rngs=rngs,
+            mutable=mutable,
+        )
+
+        # add updated cache to model output
+        if past_key_values is not None and return_dict:
+            outputs, past_key_values = outputs
+            outputs["past_key_values"] = unfreeze(past_key_values["cache"])
+            return outputs
+        elif past_key_values is not None and not return_dict:
+            outputs, past_key_values = outputs
+            outputs = outputs[:1] + (unfreeze(past_key_values["cache"]),) + outputs[1:]
+
         return outputs
