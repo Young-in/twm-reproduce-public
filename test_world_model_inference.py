@@ -45,9 +45,9 @@ def imagine_state(key, world_model, config, params, state_action_ids, past_key_v
         input_ids.shape,
     )
     outputs = world_model(
+        params,
         input_ids,
         position_ids=position_ids,
-        params=params,
         past_key_values=past_key_values,
     )
 

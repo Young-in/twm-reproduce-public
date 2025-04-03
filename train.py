@@ -273,9 +273,9 @@ class Trainer:
                     past_key_values,
                 ):
                     outputs = world_model(
+                        params,
                         input_ids,
                         position_ids=position_ids,
-                        params=params,
                         past_key_values=past_key_values,
                     )
 

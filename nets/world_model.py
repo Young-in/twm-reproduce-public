@@ -375,7 +375,7 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
             ),
         )
 
-    def __call__(
+    def forward(
         self,
         input_ids,
         attention_mask,
@@ -472,7 +472,12 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
         rngs = {"params": params_rng, "dropout": dropout_rng}
 
         module_init_outputs = self.init(
-            rngs, input_ids, attention_mask, position_ids, return_dict=False
+            rngs,
+            input_ids,
+            attention_mask,
+            position_ids,
+            method="forward",
+            return_dict=False,
         )
 
         return module_init_outputs["params"]
@@ -498,6 +503,7 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
             input_ids,
             attention_mask,
             position_ids,
+            method="forward",
             return_dict=False,
             init_cache=True,
         )
@@ -508,4 +514,94 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
 
         inputs = {"params": params}
         outputs = self.apply(inputs, *args, **kwargs, method="_loss", rngs=rngs)
+        return outputs
+
+    def __call__(
+        self,
+        params: dict,
+        input_ids,
+        attention_mask=None,
+        position_ids=None,
+        encoder_hidden_states: Optional[jnp.ndarray] = None,
+        encoder_attention_mask: Optional[jnp.ndarray] = None,
+        past_key_values: dict = None,
+        dropout_rng: jax.random.PRNGKey = None,
+        train: bool = False,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ):
+        output_attentions = (
+            output_attentions
+            if output_attentions is not None
+            else self.config.output_attentions
+        )
+        output_hidden_states = (
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.config.output_hidden_states
+        )
+        return_dict = (
+            return_dict if return_dict is not None else self.config.return_dict
+        )
+
+        if encoder_hidden_states is not None and encoder_attention_mask is None:
+            batch_size, sequence_length = encoder_hidden_states.shape[:2]
+            encoder_attention_mask = jnp.ones((batch_size, sequence_length))
+
+        batch_size, sequence_length = input_ids.shape
+
+        if position_ids is None:
+            if past_key_values is not None:
+                raise ValueError(
+                    "Make sure to provide `position_ids` when passing `past_key_values`."
+                )
+
+            position_ids = jnp.broadcast_to(
+                jnp.arange(sequence_length)[None, :], (batch_size, sequence_length)
+            )
+
+        if attention_mask is None:
+            attention_mask = jnp.ones((batch_size, sequence_length))
+
+        # Handle any PRNG if needed
+        rngs = {}
+        if dropout_rng is not None:
+            rngs["dropout"] = dropout_rng
+
+        inputs = {"params": params}
+
+        # if past_key_values are passed then cache is already initialized a private flag init_cache has to be passed down to ensure cache is used. It has to be made sure that cache is marked as mutable so that it can be changed by FlaxGPT2Attention module
+        if past_key_values:
+            inputs["cache"] = past_key_values
+            mutable = ["cache"]
+        else:
+            mutable = False
+
+        outputs = self.apply(
+            inputs,
+            jnp.array(input_ids, dtype="i4"),
+            jnp.array(attention_mask, dtype="i4"),
+            jnp.array(position_ids, dtype="i4"),
+            encoder_hidden_states,
+            encoder_attention_mask,
+            not train,
+            False,
+            output_attentions,
+            output_hidden_states,
+            return_dict,
+            method="forward",
+            rngs=rngs,
+            mutable=mutable,
+        )
+
+        # add updated cache to model output
+        if past_key_values is not None and return_dict:
+            outputs, past_key_values = outputs
+            outputs["past_key_values"] = unfreeze(past_key_values["cache"])
+            return outputs
+        elif past_key_values is not None and not return_dict:
+            outputs, past_key_values = outputs
+            outputs = outputs[:1] + (unfreeze(past_key_values["cache"]),) + outputs[1:]
+
         return outputs
