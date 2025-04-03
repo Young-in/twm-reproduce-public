@@ -444,7 +444,7 @@ class Trainer:
                 if cfg.wandb_config.enable:
                     logs = {}
                     for k in policy_img_logs[0].keys():
-                        logs[logs[f"policy_img/{k}"]] = jnp.array([l[k] for l in policy_img_logs]).mean()
+                        logs[f"policy_img/{k}"] = jnp.array([l[k] for l in policy_img_logs]).mean()
 
                     wandb.log(logs, step=step + cfg.batch_size * cfg.rollout_horizon)
 
