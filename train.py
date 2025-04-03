@@ -253,7 +253,7 @@ class Trainer:
             rollout_rng,
         ):
             def one_step(state, rng):
-                obs, done, agent_state, past_key_values = state
+                obs, done, agent_state, past_key_values, past_key_value_len = state
 
                 pi, value, agent_state = jax.lax.stop_gradient(
                     agent(obs[:, None, ...], done[:, None, ...], agent_state)
@@ -265,12 +265,17 @@ class Trainer:
                 log_prob = log_prob.squeeze(axis=1)
                 value = value.squeeze(axis=1)
 
-                def imagine_state(rng, world_model, params, input_ids, past_key_values):
-                    total_seq_len = self._get_cache_len(past_key_values)
+                def imagine_state(
+                    rng,
+                    world_model,
+                    params,
+                    input_ids,
+                    past_key_values,
+                    past_key_value_len,
+                ):
+                    total_seq_len = past_key_value_len + input_ids.shape[1]
                     position_ids = jnp.broadcast_to(
-                        jnp.arange(total_seq_len - tokens_per_block, total_seq_len)[
-                            None, :
-                        ],
+                        jnp.arange(past_key_value_len, total_seq_len)[None, :],
                         input_ids.shape,
                     )
                     outputs = world_model(
@@ -296,7 +301,13 @@ class Trainer:
                     done_logits = outputs.termination_logits[:, -1]
                     done = jax.random.categorical(done_rng, done_logits)
 
-                    return next_state_ids, reward, done, outputs.past_key_values
+                    return (
+                        next_state_ids,
+                        reward,
+                        done,
+                        outputs.past_key_values,
+                        total_seq_len,
+                    )
 
                 state_ids = tokenizer(obs, codebook)
 
@@ -305,17 +316,25 @@ class Trainer:
                 )
 
                 rng, step_rng = jax.random.split(rng)
-                next_state_ids, reward, done, past_key_values = imagine_state(
-                    step_rng,
-                    world_model,
-                    world_model_params,
-                    state_action_ids,
-                    past_key_values,
+                next_state_ids, reward, done, past_key_values, past_key_value_len = (
+                    imagine_state(
+                        step_rng,
+                        world_model,
+                        world_model_params,
+                        state_action_ids,
+                        past_key_values,
+                    )
                 )
 
                 next_obs = tokenizer.decode(next_state_ids, codebook)
 
-                return (next_obs, done, agent_state, past_key_values), (
+                return (
+                    next_obs,
+                    done,
+                    agent_state,
+                    past_key_values,
+                    past_key_value_len,
+                ), (
                     obs,
                     action,
                     log_prob,
@@ -329,6 +348,7 @@ class Trainer:
 
             batch_size = curr_obs.shape[0]
             past_key_values = init_cache(world_model, batch_size)
+            past_key_value_len = 0
             (curr_obs, curr_done, agent_state, _), (
                 obs,
                 action,
@@ -337,7 +357,7 @@ class Trainer:
                 reward,
                 done,
             ) = nnx.scan(one_step, out_axes=(nnx.transforms.iteration.Carry, 1))(
-                (curr_obs, curr_done, agent_state, past_key_values),
+                (curr_obs, curr_done, agent_state, past_key_values, past_key_value_len),
                 jax.random.split(rollout_rng, horizon),
             )
 
@@ -658,13 +678,6 @@ class Trainer:
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
         return (obs, reset, action, log_prob, adv, tgt), imagination_agent_state
-
-    @staticmethod
-    def _get_cache_len(past_key_values):
-        import ipdb
-
-        ipdb.set_trace()
-        return past_key_values["cache_index"].value
 
 
 @pyrallis.wrap()
