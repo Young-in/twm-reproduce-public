@@ -460,6 +460,7 @@ class FlaxGPT2WorldModelModule(FlaxGPT2Module):
         return loss
 
 
+# TODO Replace this class with static methods on FlaxGP2WorldModelModule
 class FlaxGPT2WorldModel(FlaxGPT2Model):
     module_class = FlaxGPT2WorldModelModule
 

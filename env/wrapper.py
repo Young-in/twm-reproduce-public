@@ -6,6 +6,7 @@ from flax import struct
 from functools import partial
 from typing import Optional, Tuple, Union, Any
 
+
 # From https://github.com/MichaelTMatthews/Craftax_Baselines/blob/main/wrappers.py
 class GymnaxWrapper(object):
     """Base class for Gymnax wrappers."""
@@ -16,6 +17,28 @@ class GymnaxWrapper(object):
     # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
         return getattr(self._env, name)
+
+
+class BinaryRewardWrapper(GymnaxWrapper):
+    """Quantizes reward to 0.0 and 1.0."""
+
+    @partial(jax.jit, static_argnums=(0, 2))
+    def reset(self, key: chex.PRNGKey, params=None):
+        obs, env_state = self._env.reset(key, params)
+        return obs, env_state
+
+    @partial(jax.jit, static_argnums=(0, 4))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state,
+        action: Union[int, float],
+        params=None,
+    ):
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        info["original_reward"] = reward
+        reward = jnp.where(reward > 0.5, 1, 0).astype(jnp.int32)
+        return obs, state, reward, done, info
 
 
 class BatchEnvWrapper(GymnaxWrapper):
@@ -48,16 +71,12 @@ class BatchEnvWrapper(GymnaxWrapper):
 class AutoResetEnvWrapper(GymnaxWrapper):
     """Provides standard auto-reset functionality, providing the same behaviour as Gymnax-default."""
 
-    def __init__(self, env):
-        super().__init__(env)
-
     @partial(jax.jit, static_argnums=(0, 2))
     def reset(self, key, params=None):
         return self._env.reset(key, params)
 
     @partial(jax.jit, static_argnums=(0, 4))
     def step(self, rng, state, action, params=None):
-
         rng, _rng = jax.random.split(rng)
         obs_st, state_st, reward, done, info = self._env.step(
             _rng, state, action, params
