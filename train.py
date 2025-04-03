@@ -253,7 +253,7 @@ class Trainer:
             rollout_rng,
         ):
             def one_step(state, rng):
-                obs, done, agent_state, past_key_values, past_key_value_len = state
+                obs, done, agent_state, position_ids, past_key_values = state
 
                 pi, value, agent_state = jax.lax.stop_gradient(
                     agent(obs[:, None, ...], done[:, None, ...], agent_state)
@@ -270,14 +270,9 @@ class Trainer:
                     world_model,
                     params,
                     input_ids,
+                    position_ids,
                     past_key_values,
-                    past_key_value_len,
                 ):
-                    total_seq_len = past_key_value_len + input_ids.shape[1]
-                    position_ids = jnp.broadcast_to(
-                        jnp.arange(past_key_value_len, total_seq_len)[None, :],
-                        input_ids.shape,
-                    )
                     outputs = world_model(
                         input_ids,
                         position_ids=position_ids,
@@ -301,12 +296,14 @@ class Trainer:
                     done_logits = outputs.termination_logits[:, -1]
                     done = jax.random.categorical(done_rng, done_logits)
 
+                    next_position_ids = position_ids + input_ids.shape[1]
+
                     return (
                         next_state_ids,
                         reward,
                         done,
+                        next_position_ids,
                         outputs.past_key_values,
-                        total_seq_len,
                     )
 
                 state_ids = tokenizer(obs, codebook)
@@ -316,12 +313,13 @@ class Trainer:
                 )
 
                 rng, step_rng = jax.random.split(rng)
-                next_state_ids, reward, done, past_key_values, past_key_value_len = (
+                next_state_ids, reward, done, position_ids, past_key_values = (
                     imagine_state(
                         step_rng,
                         world_model,
                         world_model_params,
                         state_action_ids,
+                        position_ids,
                         past_key_values,
                     )
                 )
@@ -347,8 +345,8 @@ class Trainer:
                 return world_model.init_cache(batch_size, max_tokens)
 
             batch_size = curr_obs.shape[0]
+            position_ids = jnp.arange(tokens_per_block - 1)[None, :]
             past_key_values = init_cache(world_model, batch_size)
-            past_key_value_len = 0
             (curr_obs, curr_done, agent_state, _), (
                 obs,
                 action,
@@ -357,7 +355,7 @@ class Trainer:
                 reward,
                 done,
             ) = nnx.scan(one_step, out_axes=(nnx.transforms.iteration.Carry, 1))(
-                (curr_obs, curr_done, agent_state, past_key_values, past_key_value_len),
+                (curr_obs, curr_done, agent_state, position_ids, past_key_values),
                 jax.random.split(rollout_rng, horizon),
             )
 
